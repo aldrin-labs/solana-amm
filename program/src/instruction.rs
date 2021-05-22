@@ -213,18 +213,67 @@ pub enum SwapInstruction {
     WithdrawSingleTokenTypeExactAmountOut(WithdrawSingleTokenTypeExactAmountOut),
 
     /// Deposit pool tokens to start farming
+    ///
+    ///   0. `[]` Token-swap
+    ///   1. `[]` Farming state
+    ///   2. `[writable]` Farming ticket
+    ///   3. `[]` Swap's LP token account ot freeze tokens for farming
+    ///   4. `[writable]` user's LP token account
+    ///   5. `[signer]` user LP token account transfer authority
+    ///   6. `[signer]` user's pubkey
+    ///   7. '[]` Token program id
+    ///   8. '[]` Clock sysvar
     StartFarming(StartFarming),
 
     /// Withdraw farmed tokens
+    ///
+    ///   0. `[]` Token-swap
+    ///   1. `[]` Farming state
+    ///   2. `[writable]` Farming ticket
+    ///   3. `[writable]` state's farming token account
+    ///   4. `[]` swap's authority
+    ///   5. `[]` user farming token account
+    ///   6. `[signer]` user's authority from farming ticket
+    ///   7. '[]` Clock sysvar
+    ///   8. '[]` Token program id
     WithdrawFarmed,
 
+
     /// Withdraw pool tokens and farmed tokens
+    ///
+    ///   0. `[]` Token-swap
+    ///   1. `[]` Farming state
+    ///   2. `[writable]` Farming ticket
+    ///   3. `[writable]` Swap's LP token account ot freeze tokens for farming
+    ///   4. `[writable]` state's farming token account
+    ///   5. `[]` swap's authority
+    ///   6. `[writable]` user's LP token account
+    ///   7. `[writable]` user's far,omg token account
+    ///   8. `[signer]` user's authority from farming ticket
+    ///   9. '[]` Clock sysvar
+    ///   10. '[]` Token program id
     EndFarming,
 
     /// Initialize token farming on a pool
+    ///
+    ///   0. `[]` Token-swap
+    ///   1. `[writable]` Farming state
+    ///   2. `[writable]` farming token account to be used for farming. Owner should be swap's authority
+    ///   3. `[writable]` farming token account to transfer farming tokens from
+    ///   4. `[signer]` previous account's transfer authority
+    ///   5. `[signer]` swap's fee account
+    ///   6. `[]` swap authority
+    ///   7. '[]` Clock sysvar
+    ///   8. '[]` Token program id
     InitializeFarming(InitializeFarming),
 
     /// Make a snapshot of current farming state
+    ///
+    ///   0. `[]` Token-swap
+    ///   1. `[writable]` Farming state
+    ///   2. `[]` Swap's LP Token freeze account
+    ///   3. `[signer]` swap's fee account
+    ///   4. '[]` Clock sysvar
     TakeFarmingSnapshot,
 }
 
