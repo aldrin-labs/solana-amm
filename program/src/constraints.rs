@@ -44,11 +44,11 @@ impl<'a> SwapConstraints<'a> {
 
     /// Checks that the provided curve is valid for the given constraints
     pub fn validate_fees(&self, fees: &Fees) -> Result<(), ProgramError> {
-        if fees.trade_fee_numerator >= self.fees.trade_fee_numerator
+        if fees.trade_fee_numerator == self.fees.trade_fee_numerator
             && fees.trade_fee_denominator == self.fees.trade_fee_denominator
-            && fees.owner_trade_fee_numerator >= self.fees.owner_trade_fee_numerator
+            && fees.owner_trade_fee_numerator == self.fees.owner_trade_fee_numerator
             && fees.owner_trade_fee_denominator == self.fees.owner_trade_fee_denominator
-            && fees.owner_withdraw_fee_numerator >= self.fees.owner_withdraw_fee_numerator
+            && fees.owner_withdraw_fee_numerator == self.fees.owner_withdraw_fee_numerator
             && fees.owner_withdraw_fee_denominator == self.fees.owner_withdraw_fee_denominator
             && fees.host_fee_numerator == self.fees.host_fee_numerator
             && fees.host_fee_denominator == self.fees.host_fee_denominator
@@ -64,17 +64,17 @@ impl<'a> SwapConstraints<'a> {
 const OWNER_KEY: &'static str = env!("SWAP_PROGRAM_OWNER_FEE_ADDRESS");
 #[cfg(feature = "production")]
 const FEES: &Fees = &Fees {
-    trade_fee_numerator: 0,
+    trade_fee_numerator: 25,
     trade_fee_denominator: 10000,
     owner_trade_fee_numerator: 5,
     owner_trade_fee_denominator: 10000,
-    owner_withdraw_fee_numerator: 0,
-    owner_withdraw_fee_denominator: 0,
-    host_fee_numerator: 20,
-    host_fee_denominator: 100,
+    owner_withdraw_fee_numerator: 5,
+    owner_withdraw_fee_denominator: 1000,
+    host_fee_numerator: 0,
+    host_fee_denominator: 0,
 };
 #[cfg(feature = "production")]
-const VALID_CURVE_TYPES: &[CurveType] = &[CurveType::ConstantPrice, CurveType::ConstantProduct];
+const VALID_CURVE_TYPES: &[CurveType] = &[CurveType::ConstantProduct];
 
 /// Fee structure defined by program creator in order to enforce certain
 /// fees when others use the program.  Adds checks on pool creation and
