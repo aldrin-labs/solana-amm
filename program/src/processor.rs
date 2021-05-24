@@ -8169,10 +8169,10 @@ mod tests {
         ).unwrap();
 
         //let farming_state = FarmingState::unpack(&accounts.farming_state_account.data).unwrap();
-        let farming_ticket = FarmingTicket::unpack(&farming_ticket_account.data).unwrap();
+
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount, tokens_to_freeze);
+        assert_eq!(swap_token_freeze.amount, 0);
         let farmed_tokens = tokens_per_period * time_period_one as u64;
         let swap_farming_token =
             spl_token::state::Account::unpack(&state.swap_farming_token_account.data).unwrap();
@@ -8180,6 +8180,7 @@ mod tests {
         let user_farming_token =
             spl_token::state::Account::unpack(&state.user_farming_token_account.data).unwrap();
         assert_eq!(user_farming_token.amount, farmed_tokens);
-        assert_eq!(farming_ticket.start_time, clock.unix_timestamp);
+
+        assert_eq!(FarmingTicket::is_initialized(farming_ticket_account.data.as_slice()), false);
     }
 }
