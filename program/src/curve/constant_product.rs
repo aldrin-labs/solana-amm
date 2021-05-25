@@ -29,16 +29,25 @@ pub fn swap(
     swap_source_amount: u128,
     swap_destination_amount: u128,
 ) -> Option<SwapWithoutFeesResult> {
-    let invariant = swap_source_amount.checked_mul(swap_destination_amount)?;
 
+    println!("{}", source_amount);
+    println!("{}", swap_source_amount);
+    println!("{}", swap_destination_amount);
+
+    let invariant = swap_source_amount.checked_mul(swap_destination_amount)?;
+    println!("{}", invariant);
     let new_swap_source_amount = swap_source_amount.checked_add(source_amount)?;
+    println!("{}", new_swap_source_amount);
     let (new_swap_destination_amount, new_swap_source_amount) =
         invariant.checked_ceil_div(new_swap_source_amount)?;
 
+    println!("sw dest amt {}", swap_destination_amount);
+    println!("nsw dest amt {}", new_swap_destination_amount);
+    println!("nsw src amt {}", new_swap_source_amount);
     let source_amount_swapped = new_swap_source_amount.checked_sub(swap_source_amount)?;
     let destination_amount_swapped =
         map_zero_to_none(swap_destination_amount.checked_sub(new_swap_destination_amount)?)?;
-
+    println!("dest amt{}", destination_amount_swapped);
     Some(SwapWithoutFeesResult {
         source_amount_swapped,
         destination_amount_swapped,

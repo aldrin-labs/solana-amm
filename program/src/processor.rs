@@ -380,7 +380,6 @@ impl Processor {
         }
         fees.validate()?;
         swap_curve.calculator.validate()?;
-
         let initial_amount = swap_curve.calculator.new_pool_supply();
 
         Self::token_mint_to(
@@ -495,6 +494,7 @@ impl Processor {
         } else {
             TradeDirection::BtoA
         };
+
         let result = token_swap
             .swap_curve()
             .swap(
@@ -508,7 +508,6 @@ impl Processor {
         if result.destination_amount_swapped < to_u128(minimum_amount_out)? {
             return Err(SwapError::ExceededSlippage.into());
         }
-
         let (swap_token_a_amount, swap_token_b_amount) = match trade_direction {
             TradeDirection::AtoB => (
                 result.new_swap_source_amount,
@@ -530,7 +529,7 @@ impl Processor {
             to_u64(result.source_amount_swapped)?,
         )?;
 
-        let mut pool_token_amount = token_swap
+        let pool_token_amount = token_swap
             .swap_curve()
             .trading_tokens_to_pool_tokens(
                 result.owner_fee,
@@ -544,34 +543,6 @@ impl Processor {
             .ok_or(SwapError::FeeCalculationFailure)?;
 
         if pool_token_amount > 0 {
-            // Allow error to fall through
-            if let Ok(host_fee_account_info) = next_account_info(account_info_iter) {
-                let host_fee_account = Self::unpack_token_account(
-                    host_fee_account_info,
-                    token_swap.token_program_id(),
-                )?;
-                if *pool_mint_info.key != host_fee_account.mint {
-                    return Err(SwapError::IncorrectPoolMint.into());
-                }
-                let host_fee = token_swap
-                    .fees()
-                    .host_fee(pool_token_amount)
-                    .ok_or(SwapError::FeeCalculationFailure)?;
-                if host_fee > 0 {
-                    pool_token_amount = pool_token_amount
-                        .checked_sub(host_fee)
-                        .ok_or(SwapError::FeeCalculationFailure)?;
-                    Self::token_mint_to(
-                        swap_info.key,
-                        token_program_info.clone(),
-                        pool_mint_info.clone(),
-                        host_fee_account_info.clone(),
-                        authority_info.clone(),
-                        token_swap.nonce(),
-                        to_u64(host_fee)?,
-                    )?;
-                }
-            }
             Self::token_mint_to(
                 swap_info.key,
                 token_program_info.clone(),
@@ -581,6 +552,7 @@ impl Processor {
                 token_swap.nonce(),
                 to_u64(pool_token_amount)?,
             )?;
+            // We are minting tokens only for the fees, so that LP token will increase in shares
         }
 
         Self::token_transfer(
@@ -1040,7 +1012,6 @@ impl Processor {
         let pool_token_amount = burn_pool_token_amount
             .checked_add(withdraw_fee)
             .ok_or(SwapError::CalculationFailure)?;
-
         if to_u64(pool_token_amount)? > maximum_pool_token_amount {
             return Err(SwapError::ExceededSlippage.into());
         }
@@ -1068,7 +1039,6 @@ impl Processor {
             token_swap.nonce(),
             to_u64(burn_pool_token_amount)?,
         )?;
-
         match trade_direction {
             TradeDirection::AtoB => {
                 Self::token_transfer(
@@ -1744,8 +1714,7 @@ mod tests {
 
     use crate::{
         curve::{
-            base::CurveType, constant_price::ConstantPriceCurve,
-            constant_product::ConstantProductCurve, offset::OffsetCurve,
+            base::CurveType, constant_product::ConstantProductCurve,
         },
         curve::calculator::{CurveCalculator, INITIAL_SWAP_POOL_AMOUNT},
         instruction::{
@@ -1863,12 +1832,16 @@ mod tests {
                 &user_key,
                 0,
             );
+            let mut constrained_fee_key = *user_key;
+            if let Some(constraints) = crate::constraints::SWAP_CONSTRAINTS {
+                constrained_fee_key = Pubkey::from_str(constraints.owner_key).expect("cannot create pubkey");
+            }
             let (pool_fee_key, pool_fee_account) = mint_token(
                 &TOKEN_PROGRAM_ID,
                 &pool_mint_key,
                 &mut pool_mint_account,
                 &authority_key,
-                &user_key,
+                &constrained_fee_key,
                 0,
             );
             let (token_a_mint_key, mut token_a_mint_account) =
@@ -2223,7 +2196,6 @@ mod tests {
                 ],
             )
                 .unwrap();
-
             // withdraw token a and b correctly
             do_process_instruction(
                 withdraw_all_token_types(
@@ -2352,9 +2324,7 @@ mod tests {
                     &mut Account::default(),
                     &mut Account::default(),
                 ],
-            )
-                .unwrap();
-
+            ).unwrap();
             do_process_instruction(
                 withdraw_single_token_type_exact_amount_out(
                     &SWAP_PROGRAM_ID,
@@ -2615,7 +2585,7 @@ mod tests {
                     &user_pool_token_key,
                     &user_farming_token_key,
                     &user_authority_key,
-                    &clock_key
+                    &clock_key,
                 )
                     .unwrap(),
                 vec![
@@ -2727,6 +2697,7 @@ mod tests {
                 .zip(accounts)
                 .map(|(account_meta, account)| (&account_meta.pubkey, account))
                 .collect::<Vec<_>>();
+
             for account_info in account_infos.iter_mut() {
                 for account_meta in account_metas.iter_mut() {
                     if account_info.key == account_meta.0 {
@@ -2854,14 +2825,14 @@ mod tests {
     #[test]
     fn test_initialize() {
         let user_key = Pubkey::new_unique();
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 2;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 10;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 5;
-        let host_fee_numerator = 20;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
         let fees = Fees {
             trade_fee_numerator,
             trade_fee_denominator,
@@ -3378,100 +3349,6 @@ mod tests {
         // create valid swap
         accounts.initialize_swap().unwrap();
 
-        // create invalid flat swap
-        {
-            let token_b_price = 0;
-            let fees = Fees {
-                trade_fee_numerator,
-                trade_fee_denominator,
-                owner_trade_fee_numerator,
-                owner_trade_fee_denominator,
-                owner_withdraw_fee_numerator,
-                owner_withdraw_fee_denominator,
-                host_fee_numerator,
-                host_fee_denominator,
-            };
-            let swap_curve = SwapCurve {
-                curve_type: CurveType::ConstantPrice,
-                calculator: Box::new(ConstantPriceCurve { token_b_price }),
-            };
-            let mut accounts =
-                SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
-            assert_eq!(
-                Err(SwapError::InvalidCurve.into()),
-                accounts.initialize_swap()
-            );
-        }
-
-        // create valid flat swap
-        {
-            let fees = Fees {
-                trade_fee_numerator,
-                trade_fee_denominator,
-                owner_trade_fee_numerator,
-                owner_trade_fee_denominator,
-                owner_withdraw_fee_numerator,
-                owner_withdraw_fee_denominator,
-                host_fee_numerator,
-                host_fee_denominator,
-            };
-            let token_b_price = 10_000;
-            let swap_curve = SwapCurve {
-                curve_type: CurveType::ConstantPrice,
-                calculator: Box::new(ConstantPriceCurve { token_b_price }),
-            };
-            let mut accounts =
-                SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
-            accounts.initialize_swap().unwrap();
-        }
-
-        // create invalid offset swap
-        {
-            let token_b_offset = 0;
-            let fees = Fees {
-                trade_fee_numerator,
-                trade_fee_denominator,
-                owner_trade_fee_numerator,
-                owner_trade_fee_denominator,
-                owner_withdraw_fee_numerator,
-                owner_withdraw_fee_denominator,
-                host_fee_numerator,
-                host_fee_denominator,
-            };
-            let swap_curve = SwapCurve {
-                curve_type: CurveType::Offset,
-                calculator: Box::new(OffsetCurve { token_b_offset }),
-            };
-            let mut accounts =
-                SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
-            assert_eq!(
-                Err(SwapError::InvalidCurve.into()),
-                accounts.initialize_swap()
-            );
-        }
-
-        // create valid offset swap
-        {
-            let token_b_offset = 10;
-            let fees = Fees {
-                trade_fee_numerator,
-                trade_fee_denominator,
-                owner_trade_fee_numerator,
-                owner_trade_fee_denominator,
-                owner_withdraw_fee_numerator,
-                owner_withdraw_fee_denominator,
-                host_fee_numerator,
-                host_fee_denominator,
-            };
-            let swap_curve = SwapCurve {
-                curve_type: CurveType::Offset,
-                calculator: Box::new(OffsetCurve { token_b_offset }),
-            };
-            let mut accounts =
-                SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
-            accounts.initialize_swap().unwrap();
-        }
-
         // wrong owner key in constraint
         {
             let new_key = Pubkey::new_unique();
@@ -3479,8 +3356,8 @@ mod tests {
             let trade_fee_denominator = 10000;
             let owner_trade_fee_numerator = 5;
             let owner_trade_fee_denominator = 10000;
-            let host_fee_numerator = 20;
-            let host_fee_denominator = 100;
+            let host_fee_numerator = 0;
+            let host_fee_denominator = 0;
             let fees = Fees {
                 trade_fee_numerator,
                 trade_fee_denominator,
@@ -3553,8 +3430,8 @@ mod tests {
             let trade_fee_denominator = 10000;
             let owner_trade_fee_numerator = 5;
             let owner_trade_fee_denominator = 10000;
-            let host_fee_numerator = 20;
-            let host_fee_denominator = 100;
+            let host_fee_numerator = 0;
+            let host_fee_denominator = 0;
             let fees = Fees {
                 trade_fee_numerator,
                 trade_fee_denominator,
@@ -3570,7 +3447,11 @@ mod tests {
                 curve_type: CurveType::ConstantProduct,
                 calculator: Box::new(curve),
             };
-            let owner_key = &user_key.to_string();
+            let mut owner_key = user_key.to_string();
+            if let Some(constraints) = crate::constraints::SWAP_CONSTRAINTS {
+                owner_key = constraints.owner_key.to_string();
+            }
+            let owner_key = &owner_key;
             let valid_curve_types = &[CurveType::ConstantProduct];
             let constraints = Some(SwapConstraints {
                 owner_key,
@@ -3629,8 +3510,8 @@ mod tests {
             let trade_fee_denominator = 10000;
             let owner_trade_fee_numerator = 5;
             let owner_trade_fee_denominator = 10000;
-            let host_fee_numerator = 20;
-            let host_fee_denominator = 100;
+            let host_fee_numerator = 0;
+            let host_fee_denominator = 0;
             let fees = Fees {
                 trade_fee_numerator,
                 trade_fee_denominator,
@@ -3646,7 +3527,11 @@ mod tests {
                 curve_type: CurveType::ConstantProduct,
                 calculator: Box::new(curve),
             };
-            let owner_key = &user_key.to_string();
+            let mut owner_key = user_key.to_string();
+            if let Some(constraints) = crate::constraints::SWAP_CONSTRAINTS {
+                owner_key = constraints.owner_key.to_string();
+            }
+            let owner_key = &owner_key;
             let valid_curve_types = &[CurveType::ConstantProduct];
             let constraints = Some(SwapConstraints {
                 owner_key,
@@ -3729,14 +3614,14 @@ mod tests {
     fn test_deposit() {
         let user_key = Pubkey::new_unique();
         let depositor_key = Pubkey::new_unique();
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 2;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 10;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 5;
-        let host_fee_numerator = 20;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let fees = Fees {
             trade_fee_numerator,
@@ -4341,14 +4226,14 @@ mod tests {
     #[test]
     fn test_withdraw() {
         let user_key = Pubkey::new_unique();
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 2;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 10;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 5;
-        let host_fee_numerator = 7;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let fees = Fees {
             trade_fee_numerator,
@@ -4361,8 +4246,8 @@ mod tests {
             host_fee_denominator,
         };
 
-        let token_a_amount = 1000;
-        let token_b_amount = 2000;
+        let token_a_amount = 1000000;
+        let token_b_amount = 2000000;
         let curve_type = CurveType::ConstantProduct;
         let swap_curve = SwapCurve {
             curve_type,
@@ -5042,6 +4927,7 @@ mod tests {
             let pool_mint =
                 spl_token::state::Mint::unpack(&accounts.pool_mint_account.data).unwrap();
             let withdraw_fee = accounts.fees.owner_withdraw_fee(withdraw_amount).unwrap();
+
             let results = accounts
                 .swap_curve
                 .calculator
@@ -5099,10 +4985,10 @@ mod tests {
             let mut pool_fee_account = accounts.pool_fee_account.clone();
             let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
             let pool_fee_amount = fee_account.amount;
-
+            let fee_owner = fee_account.owner;
             accounts
                 .withdraw_all_token_types(
-                    &user_key,
+                    &fee_owner,
                     &pool_fee_key,
                     &mut pool_fee_account,
                     &token_a_key,
@@ -5112,8 +4998,7 @@ mod tests {
                     pool_fee_amount,
                     0,
                     0,
-                )
-                .unwrap();
+                ).unwrap();
 
             let swap_token_a =
                 spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
@@ -5149,14 +5034,14 @@ mod tests {
     fn test_deposit_one_exact_in() {
         let user_key = Pubkey::new_unique();
         let depositor_key = Pubkey::new_unique();
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 2;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 10;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 5;
-        let host_fee_numerator = 20;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let fees = Fees {
             trade_fee_numerator,
@@ -5661,14 +5546,14 @@ mod tests {
     #[test]
     fn test_withdraw_one_exact_out() {
         let user_key = Pubkey::new_unique();
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 2;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 10;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 5;
-        let host_fee_numerator = 7;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let fees = Fees {
             trade_fee_numerator,
@@ -6283,23 +6168,21 @@ mod tests {
             let mut pool_fee_account = accounts.pool_fee_account.clone();
             let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
             let pool_fee_amount = fee_account.amount;
-
             let swap_token_a =
                 spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
 
+            let fee_account_owner = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap().owner;
             let token_a_amount = swap_token_a.amount;
             accounts
                 .withdraw_single_token_type_exact_amount_out(
-                    &user_key,
+                    &fee_account_owner,
                     &pool_fee_key,
                     &mut pool_fee_account,
                     &token_a_key,
                     &mut token_a_account,
                     fee_a_amount,
                     pool_fee_amount,
-                )
-                .unwrap();
-
+                ).unwrap();
             let swap_token_a =
                 spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
 
@@ -6494,61 +6377,12 @@ mod tests {
     #[test]
     fn test_valid_swap_curves_all_fees() {
         // All fees
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 20;
-        let host_fee_denominator = 100;
-        let fees = Fees {
-            trade_fee_numerator,
-            trade_fee_denominator,
-            owner_trade_fee_numerator,
-            owner_trade_fee_denominator,
-            owner_withdraw_fee_numerator,
-            owner_withdraw_fee_denominator,
-            host_fee_numerator,
-            host_fee_denominator,
-        };
-
-        let token_a_amount = 10_000_000_000;
-        let token_b_amount = 50_000_000_000;
-
-        check_valid_swap_curve(
-            fees.clone(),
-            CurveType::ConstantProduct,
-            Box::new(ConstantProductCurve {}),
-            token_a_amount,
-            token_b_amount,
-        );
-        let token_b_price = 1;
-        check_valid_swap_curve(
-            fees.clone(),
-            CurveType::ConstantPrice,
-            Box::new(ConstantPriceCurve { token_b_price }),
-            token_a_amount,
-            token_b_amount,
-        );
-        let token_b_offset = 10_000_000_000;
-        check_valid_swap_curve(
-            fees,
-            CurveType::Offset,
-            Box::new(OffsetCurve { token_b_offset }),
-            token_a_amount,
-            token_b_amount,
-        );
-    }
-
-    #[test]
-    fn test_valid_swap_curves_trade_fee_only() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 0;
-        let owner_trade_fee_denominator = 0;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 0;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
         let fees = Fees {
@@ -6572,19 +6406,36 @@ mod tests {
             token_a_amount,
             token_b_amount,
         );
-        let token_b_price = 10_000;
+    }
+
+    #[test]
+    fn test_valid_swap_curves_trade_fee_only() {
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
+        let fees = Fees {
+            trade_fee_numerator,
+            trade_fee_denominator,
+            owner_trade_fee_numerator,
+            owner_trade_fee_denominator,
+            owner_withdraw_fee_numerator,
+            owner_withdraw_fee_denominator,
+            host_fee_numerator,
+            host_fee_denominator,
+        };
+
+        let token_a_amount = 10_000_000_000;
+        let token_b_amount = 50_000_000_000;
+
         check_valid_swap_curve(
             fees.clone(),
-            CurveType::ConstantPrice,
-            Box::new(ConstantPriceCurve { token_b_price }),
-            token_a_amount,
-            token_b_amount / token_b_price,
-        );
-        let token_b_offset = 1;
-        check_valid_swap_curve(
-            fees,
-            CurveType::Offset,
-            Box::new(OffsetCurve { token_b_offset }),
+            CurveType::ConstantProduct,
+            Box::new(ConstantProductCurve {}),
             token_a_amount,
             token_b_amount,
         );
@@ -6592,16 +6443,19 @@ mod tests {
 
     #[test]
     fn test_valid_swap_with_fee_constraints() {
-        let owner_key = Pubkey::new_unique();
+        let mut owner_key = Pubkey::new_unique();
 
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
+        if let Some(constraints) = crate::constraints::SWAP_CONSTRAINTS {
+            owner_key = Pubkey::from_str(constraints.owner_key).expect("");
+        }
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let token_a_amount = 1_000_000;
         let token_b_amount = 5_000_000;
@@ -6735,8 +6589,7 @@ mod tests {
         let host_fee_account = spl_token::state::Account::unpack(&pool_account.data).unwrap();
         let owner_fee_account =
             spl_token::state::Account::unpack(&accounts.pool_fee_account.data).unwrap();
-        let total_fee = owner_fee_account.amount * host_fee_denominator
-            / (host_fee_denominator - host_fee_numerator);
+        let total_fee = owner_fee_account.amount;
         assert_eq!(
             total_fee,
             host_fee_account.amount + owner_fee_account.amount
@@ -6747,14 +6600,14 @@ mod tests {
     fn test_invalid_swap() {
         let user_key = Pubkey::new_unique();
         let swapper_key = Pubkey::new_unique();
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 4;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 10;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 5;
-        let host_fee_numerator = 9;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
         let fees = Fees {
             trade_fee_numerator,
             trade_fee_denominator,
@@ -7326,324 +7179,18 @@ mod tests {
             )
                 .unwrap();
         }
-
-        // invalid mint for host fee account
-        {
-            let authority_key = accounts.authority_key;
-            let (
-                token_a_key,
-                mut token_a_account,
-                token_b_key,
-                mut token_b_account,
-                _pool_key,
-                _pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &authority_key, initial_a, initial_b, 0);
-            let (
-                bad_token_a_key,
-                mut bad_token_a_account,
-                _token_b_key,
-                mut _token_b_account,
-                _pool_key,
-                _pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &authority_key, initial_a, initial_b, 0);
-            let owner_key = &swapper_key.to_string();
-            let fees = Fees {
-                trade_fee_numerator,
-                trade_fee_denominator,
-                owner_trade_fee_numerator,
-                owner_trade_fee_denominator,
-                owner_withdraw_fee_numerator,
-                owner_withdraw_fee_denominator,
-                host_fee_numerator,
-                host_fee_denominator,
-            };
-            let constraints = Some(SwapConstraints {
-                owner_key,
-                valid_curve_types: &[],
-                fees: &fees,
-            });
-            assert_eq!(
-                Err(SwapError::IncorrectPoolMint.into()),
-                do_process_instruction_with_fee_constraints(
-                    swap(
-                        &SWAP_PROGRAM_ID,
-                        &TOKEN_PROGRAM_ID,
-                        &accounts.swap_key,
-                        &accounts.authority_key,
-                        &accounts.authority_key,
-                        &token_a_key,
-                        &accounts.token_a_key,
-                        &accounts.token_b_key,
-                        &token_b_key,
-                        &accounts.pool_mint_key,
-                        &accounts.pool_fee_key,
-                        Some(&bad_token_a_key),
-                        Swap {
-                            amount_in: initial_a,
-                            minimum_amount_out: 0,
-                        },
-                    )
-                        .unwrap(),
-                    vec![
-                        &mut accounts.swap_account,
-                        &mut Account::default(),
-                        &mut Account::default(),
-                        &mut token_a_account,
-                        &mut accounts.token_a_account,
-                        &mut accounts.token_b_account,
-                        &mut token_b_account,
-                        &mut accounts.pool_mint_account,
-                        &mut accounts.pool_fee_account,
-                        &mut Account::default(),
-                        &mut bad_token_a_account,
-                    ],
-                    &constraints,
-                ),
-            );
-        }
-    }
-
-    #[test]
-    fn test_overdraw_offset_curve() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 1;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
-
-        let token_a_amount = 1_000_000_000;
-        let token_b_amount = 0;
-        let fees = Fees {
-            trade_fee_numerator,
-            trade_fee_denominator,
-            owner_trade_fee_numerator,
-            owner_trade_fee_denominator,
-            owner_withdraw_fee_numerator,
-            owner_withdraw_fee_denominator,
-            host_fee_numerator,
-            host_fee_denominator,
-        };
-
-        let token_b_offset = 2_000_000;
-        let swap_curve = SwapCurve {
-            curve_type: CurveType::Offset,
-            calculator: Box::new(OffsetCurve { token_b_offset }),
-        };
-        let user_key = Pubkey::new_unique();
-        let swapper_key = Pubkey::new_unique();
-
-        let mut accounts =
-            SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
-
-        accounts.initialize_swap().unwrap();
-
-        let swap_token_a_key = accounts.token_a_key;
-        let swap_token_b_key = accounts.token_b_key;
-        let initial_a = 500_000;
-        let initial_b = 1_000;
-
-        let (
-            token_a_key,
-            mut token_a_account,
-            token_b_key,
-            mut token_b_account,
-            _pool_key,
-            _pool_account,
-        ) = accounts.setup_token_accounts(&user_key, &swapper_key, initial_a, initial_b, 0);
-
-        // swap a to b way, fails, there's no liquidity
-        let a_to_b_amount = initial_a;
-        let minimum_token_b_amount = 0;
-
-        assert_eq!(
-            Err(SwapError::ZeroTradingTokens.into()),
-            accounts.swap(
-                &swapper_key,
-                &token_a_key,
-                &mut token_a_account,
-                &swap_token_a_key,
-                &swap_token_b_key,
-                &token_b_key,
-                &mut token_b_account,
-                a_to_b_amount,
-                minimum_token_b_amount,
-            )
-        );
-
-        // swap b to a, succeeds at offset price
-        let b_to_a_amount = initial_b;
-        let minimum_token_a_amount = 0;
-        accounts
-            .swap(
-                &swapper_key,
-                &token_b_key,
-                &mut token_b_account,
-                &swap_token_b_key,
-                &swap_token_a_key,
-                &token_a_key,
-                &mut token_a_account,
-                b_to_a_amount,
-                minimum_token_a_amount,
-            )
-            .unwrap();
-
-        // try a to b again, succeeds due to new liquidity
-        accounts
-            .swap(
-                &swapper_key,
-                &token_a_key,
-                &mut token_a_account,
-                &swap_token_a_key,
-                &swap_token_b_key,
-                &token_b_key,
-                &mut token_b_account,
-                a_to_b_amount,
-                minimum_token_b_amount,
-            )
-            .unwrap();
-
-        // try a to b again, fails due to no more liquidity
-        assert_eq!(
-            Err(SwapError::ZeroTradingTokens.into()),
-            accounts.swap(
-                &swapper_key,
-                &token_a_key,
-                &mut token_a_account,
-                &swap_token_a_key,
-                &swap_token_b_key,
-                &token_b_key,
-                &mut token_b_account,
-                a_to_b_amount,
-                minimum_token_b_amount,
-            )
-        );
-
-        // Try to deposit, fails because deposits are not allowed for offset
-        // curve swaps
-        {
-            let initial_a = 100;
-            let initial_b = 100;
-            let pool_amount = 100;
-            let (
-                token_a_key,
-                mut token_a_account,
-                token_b_key,
-                mut token_b_account,
-                pool_key,
-                mut pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &swapper_key, initial_a, initial_b, 0);
-            assert_eq!(
-                Err(SwapError::UnsupportedCurveOperation.into()),
-                accounts.deposit_all_token_types(
-                    &swapper_key,
-                    &token_a_key,
-                    &mut token_a_account,
-                    &token_b_key,
-                    &mut token_b_account,
-                    &pool_key,
-                    &mut pool_account,
-                    pool_amount,
-                    initial_a,
-                    initial_b,
-                )
-            );
-        }
-    }
-
-    #[test]
-    fn test_withdraw_all_offset_curve() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
-
-        let token_a_amount = 1_000_000_000;
-        let token_b_amount = 10;
-        let fees = Fees {
-            trade_fee_numerator,
-            trade_fee_denominator,
-            owner_trade_fee_numerator,
-            owner_trade_fee_denominator,
-            owner_withdraw_fee_numerator,
-            owner_withdraw_fee_denominator,
-            host_fee_numerator,
-            host_fee_denominator,
-        };
-
-        let token_b_offset = 2_000_000;
-        let swap_curve = SwapCurve {
-            curve_type: CurveType::Offset,
-            calculator: Box::new(OffsetCurve { token_b_offset }),
-        };
-        let total_pool = swap_curve.calculator.new_pool_supply();
-        let user_key = Pubkey::new_unique();
-        let withdrawer_key = Pubkey::new_unique();
-
-        let mut accounts =
-            SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
-
-        accounts.initialize_swap().unwrap();
-
-        let (
-            token_a_key,
-            mut token_a_account,
-            token_b_key,
-            mut token_b_account,
-            _pool_key,
-            _pool_account,
-        ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, 0, 0, 0);
-
-        let pool_key = accounts.pool_token_key;
-        let mut pool_account = accounts.pool_token_account.clone();
-
-        // WithdrawAllTokenTypes takes all tokens for A and B.
-        // The curve's calculation for token B will say to transfer
-        // `token_b_offset + token_b_amount`, but only `token_b_amount` will be
-        // moved.
-        accounts
-            .withdraw_all_token_types(
-                &user_key,
-                &pool_key,
-                &mut pool_account,
-                &token_a_key,
-                &mut token_a_account,
-                &token_b_key,
-                &mut token_b_account,
-                total_pool.try_into().unwrap(),
-                0,
-                0,
-            )
-            .unwrap();
-
-        let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
-        assert_eq!(token_a.amount, token_a_amount);
-        let token_b = spl_token::state::Account::unpack(&token_b_account.data).unwrap();
-        assert_eq!(token_b.amount, token_b_amount);
-        let swap_token_a =
-            spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
-        assert_eq!(swap_token_a.amount, 0);
-        let swap_token_b =
-            spl_token::state::Account::unpack(&accounts.token_b_account.data).unwrap();
-        assert_eq!(swap_token_b.amount, 0);
     }
 
     #[test]
     fn test_init_farming() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let token_a_amount = 1_000_000_000;
         let token_b_amount = 10;
@@ -7715,14 +7262,14 @@ mod tests {
 
     #[test]
     fn test_start_farming() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let token_a_amount = 1_000_000_000;
         let token_b_amount = 10;
@@ -7813,14 +7360,14 @@ mod tests {
 
     #[test]
     fn test_take_farming_snapshot() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let token_a_amount = 1_000_000_000;
         let token_b_amount = 10;
@@ -7928,14 +7475,14 @@ mod tests {
 
     #[test]
     fn test_withdraw_farmed() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let token_a_amount = 1_000_000_000;
         let token_b_amount = 10;
@@ -8055,14 +7602,14 @@ mod tests {
 
     #[test]
     fn test_end_farming() {
-        let trade_fee_numerator = 1;
-        let trade_fee_denominator = 10;
-        let owner_trade_fee_numerator = 1;
-        let owner_trade_fee_denominator = 30;
-        let owner_withdraw_fee_numerator = 0;
-        let owner_withdraw_fee_denominator = 30;
-        let host_fee_numerator = 10;
-        let host_fee_denominator = 100;
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 5;
+        let owner_withdraw_fee_denominator = 1000;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
 
         let token_a_amount = 1_000_000_000;
         let token_b_amount = 10;
