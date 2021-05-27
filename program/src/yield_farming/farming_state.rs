@@ -12,13 +12,15 @@ use crate::yield_farming::snapshots::SnapshotQueue;
 use crate::yield_farming::farming_ticket::FarmingTicket;
 
 pub const FARMING_STATE_DISCRIMINATOR: [u8;8] = hex!("183A2D454BEF7B11");
-pub const MINIMUM_WITHDRAWAL_TIME: UnixTimestamp = 60 * 60 * 24 * 30 * 6; ///Nearly 6 months
+pub const NO_WITHDRAWAL_TIME: UnixTimestamp = 60 * 60 * 24 * 30 * 6; ///Nearly 6 months
+
 
 #[derive(Debug, Default, PartialEq)]
 pub struct FarmingState {
     pub discriminator: u64,
     pub is_initialized: bool,
     pub tokens_unlocked: u64,
+    pub tokens_total: u64,
     pub tokens_per_period: u64,
     pub period_length: u64,
     pub start_time: UnixTimestamp,
@@ -45,8 +47,8 @@ impl FarmingState {
     }
 
     /// Check if no withdrawal time period passed
-    pub fn is_minimum_withdraw_period_passed(&self, current_time: UnixTimestamp) -> bool {
-        if current_time > self.start_time +  MINIMUM_WITHDRAWAL_TIME {
+    pub fn is_no_withdrawal_period_passed(&self, current_time: UnixTimestamp) -> bool {
+        if current_time > self.start_time + NO_WITHDRAWAL_TIME {
             return true
         }
         false
@@ -55,13 +57,16 @@ impl FarmingState {
     pub fn calculate_withdraw_tokens(&self, farming_ticket: &FarmingTicket) -> Option<(u128, UnixTimestamp)> {
         let mut max_tokens : u128 = 0;
         let mut last_timestamp = farming_ticket.start_time;
+        let mut last_snapshot_tokens = 0;
         for snapshot in self.farming_snapshots.snapshots.iter() {
             if snapshot.time > farming_ticket.start_time {
                 let tokens = (snapshot.farming_tokens as u128)
+                    .checked_sub(last_snapshot_tokens as u128)?
                     .checked_mul(snapshot.tokens_frozen as u128)?
                     .checked_div(farming_ticket.tokens_frozen as u128)?;
                 max_tokens = max_tokens.checked_add(tokens)?;
                 last_timestamp = snapshot.time;
+                last_snapshot_tokens = snapshot.farming_tokens;
             }
         }
         Some((max_tokens, last_timestamp))
@@ -76,25 +81,27 @@ impl IsInitialized for FarmingState {
 }
 
 impl Pack for FarmingState {
-    const LEN: usize = 3839;
+    const LEN: usize = 3847;
 
     fn pack_into_slice(&self, output: &mut [u8]) {
-        let output = array_mut_ref![output, 0, 3839];
+        let output = array_mut_ref![output, 0, 3847];
         let (
              discriminator,
              is_initialized,
              tokens_unlocked,
              tokens_per_period,
+             tokens_total,
              period_length,
              start_time,
              current_time,
              farming_token_account,
              farming_snapshots,
-        ) = mut_array_refs![output, 8, 1, 8, 8, 8, 8, 8, 32, 3758];
+        ) = mut_array_refs![output, 8, 1, 8, 8, 8, 8, 8, 8, 32, 3758];
         discriminator.copy_from_slice(&self.discriminator.to_le_bytes());
         is_initialized[0] = self.is_initialized as u8;
         tokens_unlocked.copy_from_slice(&self.tokens_unlocked.to_le_bytes());
         tokens_per_period.copy_from_slice(&self.tokens_per_period.to_le_bytes());
+        tokens_total.copy_from_slice(&self.tokens_total.to_le_bytes());
         period_length.copy_from_slice(&self.period_length.to_le_bytes());
         start_time.copy_from_slice(&self.start_time.to_le_bytes());
         current_time.copy_from_slice(&self.current_time.to_le_bytes());
@@ -104,19 +111,20 @@ impl Pack for FarmingState {
 
     /// Unpacks a byte buffer into a [SwapV1](struct.SwapV1.html).
     fn unpack_from_slice(input: &[u8]) -> Result<Self, ProgramError> {
-        let input = array_ref![input, 0, 3839];
+        let input = array_ref![input, 0, 3847];
         #[allow(clippy::ptr_offset_with_cast)]
             let (
             discriminator,
             is_initialized,
             tokens_unlocked,
             tokens_per_period,
+            tokens_total,
             period_length,
             start_time,
             current_time,
             farming_token_account,
             farming_snapshots,
-        ) = array_refs![input, 8, 1, 8, 8, 8, 8, 8, 32, 3758];
+        ) = array_refs![input, 8, 1, 8, 8, 8, 8, 8, 8, 32, 3758];
         Ok(Self {
             discriminator: match discriminator {
                 &FARMING_STATE_DISCRIMINATOR => u64::from_le_bytes(FARMING_STATE_DISCRIMINATOR),
@@ -127,8 +135,9 @@ impl Pack for FarmingState {
                 [1] => true,
                 _ => return Err(ProgramError::InvalidAccountData),
             },
-            tokens_unlocked:  u64::from_le_bytes(*tokens_unlocked),
-            tokens_per_period:  u64::from_le_bytes(*tokens_per_period),
+            tokens_unlocked: u64::from_le_bytes(*tokens_unlocked),
+            tokens_per_period: u64::from_le_bytes(*tokens_per_period),
+            tokens_total: u64::from_le_bytes(*tokens_total),
             period_length:  u64::from_le_bytes(*period_length),
             start_time: UnixTimestamp::from_le_bytes(*start_time),
             current_time: UnixTimestamp::from_le_bytes(*current_time),
