@@ -29,14 +29,6 @@ impl FarmingTicket {
             Err(_) => false,
         }
     }
-
-    /// Check if minimum withdrawal time period passed
-    pub fn is_minimum_withdraw_period_passed(&self, period_length: i64, current_time: UnixTimestamp) -> bool {
-        if current_time > self.start_time + period_length {
-            return true
-        }
-        false
-    }
 }
 
 impl Sealed for FarmingTicket {}

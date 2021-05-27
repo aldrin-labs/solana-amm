@@ -25,6 +25,7 @@ pub struct FarmingState {
     pub period_length: u64,
     pub start_time: UnixTimestamp,
     pub current_time: UnixTimestamp,
+    pub attached_swap_account: Pubkey,
     pub farming_token_account: Pubkey,
     pub farming_snapshots: SnapshotQueue,
 }
@@ -81,10 +82,10 @@ impl IsInitialized for FarmingState {
 }
 
 impl Pack for FarmingState {
-    const LEN: usize = 3847;
+    const LEN: usize = 3879;
 
     fn pack_into_slice(&self, output: &mut [u8]) {
-        let output = array_mut_ref![output, 0, 3847];
+        let output = array_mut_ref![output, 0, 3879];
         let (
              discriminator,
              is_initialized,
@@ -94,9 +95,10 @@ impl Pack for FarmingState {
              period_length,
              start_time,
              current_time,
+             attached_swap_account,
              farming_token_account,
              farming_snapshots,
-        ) = mut_array_refs![output, 8, 1, 8, 8, 8, 8, 8, 8, 32, 3758];
+        ) = mut_array_refs![output, 8, 1, 8, 8, 8, 8, 8, 8, 32, 32, 3758];
         discriminator.copy_from_slice(&self.discriminator.to_le_bytes());
         is_initialized[0] = self.is_initialized as u8;
         tokens_unlocked.copy_from_slice(&self.tokens_unlocked.to_le_bytes());
@@ -105,13 +107,14 @@ impl Pack for FarmingState {
         period_length.copy_from_slice(&self.period_length.to_le_bytes());
         start_time.copy_from_slice(&self.start_time.to_le_bytes());
         current_time.copy_from_slice(&self.current_time.to_le_bytes());
+        attached_swap_account.copy_from_slice(&self.attached_swap_account.as_ref());
         farming_token_account.copy_from_slice(&self.farming_token_account.as_ref());
         self.farming_snapshots.pack_into_slice(farming_snapshots);
     }
 
     /// Unpacks a byte buffer into a [SwapV1](struct.SwapV1.html).
     fn unpack_from_slice(input: &[u8]) -> Result<Self, ProgramError> {
-        let input = array_ref![input, 0, 3847];
+        let input = array_ref![input, 0, 3879];
         #[allow(clippy::ptr_offset_with_cast)]
             let (
             discriminator,
@@ -122,9 +125,10 @@ impl Pack for FarmingState {
             period_length,
             start_time,
             current_time,
+            attached_swap_account,
             farming_token_account,
             farming_snapshots,
-        ) = array_refs![input, 8, 1, 8, 8, 8, 8, 8, 8, 32, 3758];
+        ) = array_refs![input, 8, 1, 8, 8, 8, 8, 8, 8, 32, 32, 3758];
         Ok(Self {
             discriminator: match discriminator {
                 &FARMING_STATE_DISCRIMINATOR => u64::from_le_bytes(FARMING_STATE_DISCRIMINATOR),
@@ -141,6 +145,7 @@ impl Pack for FarmingState {
             period_length:  u64::from_le_bytes(*period_length),
             start_time: UnixTimestamp::from_le_bytes(*start_time),
             current_time: UnixTimestamp::from_le_bytes(*current_time),
+            attached_swap_account: Pubkey::new_from_array(*attached_swap_account),
             farming_token_account: Pubkey::new_from_array(*farming_token_account),
             farming_snapshots: SnapshotQueue::unpack_from_slice(farming_snapshots.as_ref())?
         })
