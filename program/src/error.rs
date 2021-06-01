@@ -118,6 +118,10 @@ pub enum FarmingError {
     ///Got no tokens to unlock from the last snapshot to the current one
     #[error("No tokens to unlock")]
     CannotSnapshotNoTokensToUnlock,
+    ///Got no tokens to unlock as they cannot be allocated to no one
+    #[error("No tokens frozen")]
+    CannotSnapshotNoTokensFrozen,
+
 }
 impl From<FarmingError> for ProgramError {
     fn from(e: FarmingError) -> Self {
