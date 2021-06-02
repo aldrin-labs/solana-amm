@@ -60,9 +60,7 @@ impl FarmingState {
         let mut last_timestamp = farming_ticket.start_time;
         let mut last_snapshot_tokens = 0;
         for snapshot in self.farming_snapshots.snapshots.iter() {
-            println!("snapshot {}", snapshot.time);
             if snapshot.time > farming_ticket.start_time && snapshot.time < farming_ticket.end_time {
-                println!("{} {} {} {}", snapshot.farming_tokens, last_snapshot_tokens, farming_ticket.tokens_frozen, snapshot.tokens_frozen);
                 let tokens = (snapshot.farming_tokens as u128)
                     .checked_sub(last_snapshot_tokens as u128)?
                     .checked_mul(farming_ticket.tokens_frozen as u128)?

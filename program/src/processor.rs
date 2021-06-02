@@ -1205,7 +1205,6 @@ impl Processor {
         let (tokens_to_withdraw, timestamp) = farming_state
             .calculate_withdraw_tokens(&farming_ticket)
             .ok_or(FarmingError::FarmingTokenCalculationError)?;
-        println!("tokens to withdraw {}", tokens_to_withdraw);
         if tokens_to_withdraw == 0 || timestamp == farming_ticket.start_time {
             return Err(FarmingError::NoTokensToWithdraw.into());
         }
@@ -2180,7 +2179,7 @@ mod tests {
                 pool_token_amount,
                 maximum_token_a_amount,
                 maximum_token_b_amount,
-            )
+            );
         }
 
         #[allow(clippy::too_many_arguments)]
@@ -2697,7 +2696,7 @@ mod tests {
                 token_b_key,
                 token_b_account,
                 farming_ticket_key,
-                farming_ticket_account
+                farming_ticket_account,
             }
         }
     }
@@ -2744,7 +2743,7 @@ mod tests {
                 swap_farming_token_key,
                 swap_farming_token_account,
                 owner_farming_token_key,
-                owner_farming_token_account
+                owner_farming_token_account,
             }
         }
     }
@@ -5080,63 +5079,63 @@ mod tests {
 
         // correct withdrawal from fee account
         #[cfg(not(feature = "production"))]
-        {
-            let (
-                token_a_key,
-                mut token_a_account,
-                token_b_key,
-                mut token_b_account,
-                _pool_key,
-                mut _pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, 0, 0, 0);
+            {
+                let (
+                    token_a_key,
+                    mut token_a_account,
+                    token_b_key,
+                    mut token_b_account,
+                    _pool_key,
+                    mut _pool_account,
+                ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, 0, 0, 0);
 
-            let pool_fee_key = accounts.pool_fee_key;
-            let mut pool_fee_account = accounts.pool_fee_account.clone();
-            let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
-            let pool_fee_amount = fee_account.amount;
-            let fee_owner = fee_account.owner;
-            accounts
-                .withdraw_all_token_types(
-                    &fee_owner,
-                    &pool_fee_key,
-                    &mut pool_fee_account,
-                    &token_a_key,
-                    &mut token_a_account,
-                    &token_b_key,
-                    &mut token_b_account,
-                    pool_fee_amount,
-                    0,
-                    0,
-                ).unwrap();
+                let pool_fee_key = accounts.pool_fee_key;
+                let mut pool_fee_account = accounts.pool_fee_account.clone();
+                let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
+                let pool_fee_amount = fee_account.amount;
+                let fee_owner = fee_account.owner;
+                accounts
+                    .withdraw_all_token_types(
+                        &fee_owner,
+                        &pool_fee_key,
+                        &mut pool_fee_account,
+                        &token_a_key,
+                        &mut token_a_account,
+                        &token_b_key,
+                        &mut token_b_account,
+                        pool_fee_amount,
+                        0,
+                        0,
+                    ).unwrap();
 
-            let swap_token_a =
-                spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
-            let swap_token_b =
-                spl_token::state::Account::unpack(&accounts.token_b_account.data).unwrap();
-            let pool_mint =
-                spl_token::state::Mint::unpack(&accounts.pool_mint_account.data).unwrap();
-            let results = accounts
-                .swap_curve
-                .calculator
-                .pool_tokens_to_trading_tokens(
-                    pool_fee_amount.try_into().unwrap(),
-                    pool_mint.supply.try_into().unwrap(),
-                    swap_token_a.amount.try_into().unwrap(),
-                    swap_token_b.amount.try_into().unwrap(),
-                    RoundDirection::Floor,
-                )
-                .unwrap();
-            let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
-            assert_eq!(
-                token_a.amount,
-                TryInto::<u64>::try_into(results.token_a_amount).unwrap()
-            );
-            let token_b = spl_token::state::Account::unpack(&token_b_account.data).unwrap();
-            assert_eq!(
-                token_b.amount,
-                TryInto::<u64>::try_into(results.token_b_amount).unwrap()
-            );
-        }
+                let swap_token_a =
+                    spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
+                let swap_token_b =
+                    spl_token::state::Account::unpack(&accounts.token_b_account.data).unwrap();
+                let pool_mint =
+                    spl_token::state::Mint::unpack(&accounts.pool_mint_account.data).unwrap();
+                let results = accounts
+                    .swap_curve
+                    .calculator
+                    .pool_tokens_to_trading_tokens(
+                        pool_fee_amount.try_into().unwrap(),
+                        pool_mint.supply.try_into().unwrap(),
+                        swap_token_a.amount.try_into().unwrap(),
+                        swap_token_b.amount.try_into().unwrap(),
+                        RoundDirection::Floor,
+                    )
+                    .unwrap();
+                let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
+                assert_eq!(
+                    token_a.amount,
+                    TryInto::<u64>::try_into(results.token_a_amount).unwrap()
+                );
+                let token_b = spl_token::state::Account::unpack(&token_b_account.data).unwrap();
+                assert_eq!(
+                    token_b.amount,
+                    TryInto::<u64>::try_into(results.token_b_amount).unwrap()
+                );
+            }
     }
 
     #[test]
@@ -6263,43 +6262,43 @@ mod tests {
 
         // correct withdrawal from fee account
         #[cfg(not(feature = "production"))]
-        {
-            let (
-                token_a_key,
-                mut token_a_account,
-                _token_b_key,
-                _token_b_account,
-                _pool_key,
-                _pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, initial_a, initial_b, 0);
+            {
+                let (
+                    token_a_key,
+                    mut token_a_account,
+                    _token_b_key,
+                    _token_b_account,
+                    _pool_key,
+                    _pool_account,
+                ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, initial_a, initial_b, 0);
 
-            let fee_a_amount = 2;
-            let pool_fee_key = accounts.pool_fee_key;
-            let mut pool_fee_account = accounts.pool_fee_account.clone();
-            let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
-            let pool_fee_amount = fee_account.amount;
-            let swap_token_a =
-                spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
+                let fee_a_amount = 2;
+                let pool_fee_key = accounts.pool_fee_key;
+                let mut pool_fee_account = accounts.pool_fee_account.clone();
+                let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
+                let pool_fee_amount = fee_account.amount;
+                let swap_token_a =
+                    spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
 
-            let fee_account_owner = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap().owner;
-            let token_a_amount = swap_token_a.amount;
-            accounts
-                .withdraw_single_token_type_exact_amount_out(
-                    &fee_account_owner,
-                    &pool_fee_key,
-                    &mut pool_fee_account,
-                    &token_a_key,
-                    &mut token_a_account,
-                    fee_a_amount,
-                    pool_fee_amount,
-                ).unwrap();
-            let swap_token_a =
-                spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
+                let fee_account_owner = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap().owner;
+                let token_a_amount = swap_token_a.amount;
+                accounts
+                    .withdraw_single_token_type_exact_amount_out(
+                        &fee_account_owner,
+                        &pool_fee_key,
+                        &mut pool_fee_account,
+                        &token_a_key,
+                        &mut token_a_account,
+                        fee_a_amount,
+                        pool_fee_amount,
+                    ).unwrap();
+                let swap_token_a =
+                    spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
 
-            assert_eq!(swap_token_a.amount, token_a_amount - fee_a_amount);
-            let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
-            assert_eq!(token_a.amount, initial_a + fee_a_amount);
-        }
+                assert_eq!(swap_token_a.amount, token_a_amount - fee_a_amount);
+                let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
+                assert_eq!(token_a.amount, initial_a + fee_a_amount);
+            }
     }
 
     fn check_valid_swap_curve(
@@ -7570,15 +7569,10 @@ mod tests {
 
         let clock_key = Pubkey::from_str("SysvarC1ock11111111111111111111111111111111")
             .expect("Clock pubkey creation failed");
-        let mut clock = Clock::default();
-        clock.unix_timestamp = SystemTime::now()
+        let mut current_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH).expect("wrong current system time")
             .as_secs() as i64;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        let mut clock_account = get_clock_for_time(current_timestamp);
 
         let mut accounts =
             SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
@@ -7642,12 +7636,8 @@ mod tests {
             tokens_to_freeze_two,
         ).unwrap();
 
-        clock.unix_timestamp += time_period_one;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        current_timestamp += time_period_one;
+        clock_account = get_clock_for_time(current_timestamp);
 
         accounts.take_farming_snapshot(
             &clock_key,
@@ -7656,7 +7646,7 @@ mod tests {
 
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount,  tokens_to_freeze_one + tokens_to_freeze_two);
+        assert_eq!(swap_token_freeze.amount, tokens_to_freeze_one + tokens_to_freeze_two);
         let farming_state = FarmingState::unpack(&accounts.farming_state_account.data).unwrap();
         assert_eq!(farming_state.farming_snapshots.next_index, 1);
         let last_snapshot = farming_state
@@ -7665,7 +7655,7 @@ mod tests {
         assert_eq!(last_snapshot.tokens_frozen, tokens_to_freeze_one + tokens_to_freeze_two);
         assert_eq!(last_snapshot.farming_tokens,
                    tokens_per_period * time_period_one as u64);
-        assert_eq!(last_snapshot.time, clock.unix_timestamp);
+        assert_eq!(last_snapshot.time, current_timestamp);
     }
 
     fn check_diff_within_error_range(
@@ -7711,7 +7701,7 @@ mod tests {
 
         let token_amount = 100_000_000;
         let tokens_per_period = 100;
-        let period_length: u64 = 60*60*24;
+        let period_length: u64 = 60 * 60 * 24;
         let tokens_to_freeze_one = 100_000;
         let tokens_to_freeze_two = 1_000_000;
 
@@ -7798,7 +7788,7 @@ mod tests {
         let mut i = 0;
         while i < period_one_snapshots {
             current_timestamp += time_period_one;
-            let mut clock_account = get_clock_for_time(current_timestamp);
+            clock_account = get_clock_for_time(current_timestamp);
 
             accounts.take_farming_snapshot(
                 &clock_key,
@@ -7807,23 +7797,23 @@ mod tests {
             i += 1;
         }
         assert_eq!(Err(FarmingError::MinimumWithdrawalTimeNotPassed.into()),
-            accounts.withdraw_farmed(
-                &user_one.user_farming_token_key,
-                &mut user_one.user_farming_token_account,
-                &user_one.farming_ticket_key,
-                &mut user_one.farming_ticket_account,
-                &state.swap_farming_token_key,
-                &mut state.swap_farming_token_account,
-                &user_one.user_key,
-                &clock_key,
-                &mut clock_account,
-            )
+                   accounts.withdraw_farmed(
+                       &user_one.user_farming_token_key,
+                       &mut user_one.user_farming_token_account,
+                       &user_one.farming_ticket_key,
+                       &mut user_one.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_one.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   )
         );
 
         let mut i = 0;
         while i < period_two_snapshots {
             current_timestamp += time_period_two;
-            let mut clock_account = get_clock_for_time(current_timestamp);
+            clock_account = get_clock_for_time(current_timestamp);
 
             accounts.take_farming_snapshot(
                 &clock_key,
@@ -7833,20 +7823,20 @@ mod tests {
         }
 
         assert_eq!(Err(FarmingError::MinimumWithdrawalTimeNotPassed.into()),
-        accounts.withdraw_farmed(
-            &user_two.user_farming_token_key,
-            &mut user_two.user_farming_token_account,
-            &user_two.farming_ticket_key,
-            &mut user_two.farming_ticket_account,
-            &state.swap_farming_token_key,
-            &mut state.swap_farming_token_account,
-            &user_two.user_key,
-            &clock_key,
-            &mut clock_account,
-        ));
+                   accounts.withdraw_farmed(
+                       &user_two.user_farming_token_key,
+                       &mut user_two.user_farming_token_account,
+                       &user_two.farming_ticket_key,
+                       &mut user_two.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_two.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   ));
 
         current_timestamp += time_period_three;
-        let mut clock_account = get_clock_for_time(current_timestamp);
+        clock_account = get_clock_for_time(current_timestamp);
         let user_one_withdrawal_timestamp = current_timestamp;
 
         accounts.take_farming_snapshot(
@@ -7866,7 +7856,7 @@ mod tests {
         ).unwrap();
 
         current_timestamp += time_period_four;
-        let mut clock_account = get_clock_for_time(current_timestamp);
+        clock_account = get_clock_for_time(current_timestamp);
         accounts.take_farming_snapshot(
             &clock_key,
             &mut clock_account,
@@ -7893,9 +7883,9 @@ mod tests {
 
         let farmed_tokens_one =
             tokens_per_period
-            * ((period_one_snapshots +
-                time_period_two/(period_length as i64) * period_two_snapshots +
-                time_period_three/(period_length as i64)) as u64);
+                * ((period_one_snapshots +
+                time_period_two / (period_length as i64) * period_two_snapshots +
+                time_period_three / (period_length as i64)) as u64);
         let farmed_tokens_two = farmed_tokens_one + tokens_per_period * (time_period_four as u64 / period_length);
         let farmed_tokens_one = ((farmed_tokens_one as u128 * tokens_to_freeze_one as u128)
             / swap_token_freeze.amount as u128) as u64;
@@ -7910,21 +7900,21 @@ mod tests {
         let swap_farming_token =
             spl_token::state::Account::unpack(&state.swap_farming_token_account.data).unwrap();
         assert_eq!(check_diff_within_error_range(swap_farming_token.amount,
-                                                  token_amount - farmed_tokens_one - farmed_tokens_two,
-                                                  1,
-                                                  100),
+                                                 token_amount - farmed_tokens_one - farmed_tokens_two,
+                                                 1,
+                                                 100),
                    true);
 
         assert_eq!(check_diff_within_error_range(user_one_farming_token.amount,
-                                                  farmed_tokens_one,
-                                                  1,
-                                                  100),
-                    true);
+                                                 farmed_tokens_one,
+                                                 1,
+                                                 100),
+                   true);
         assert_eq!(check_diff_within_error_range(user_two_farming_token.amount,
-                                                  farmed_tokens_two,
-                                                  1,
-                                                  100),
-                    true);
+                                                 farmed_tokens_two,
+                                                 1,
+                                                 100),
+                   true);
         assert_eq!(farming_ticket_one.start_time, user_one_withdrawal_timestamp);
         assert_eq!(farming_ticket_two.start_time, current_timestamp);
     }
@@ -7962,7 +7952,7 @@ mod tests {
 
         let token_amount = 100_000_000;
         let tokens_per_period = 100;
-        let period_length: u64 = 60*60*24;
+        let period_length: u64 = 60 * 60 * 24;
         let tokens_to_freeze_one = 100_000;
         let tokens_to_freeze_two = 1_000_000;
 
@@ -8048,7 +8038,7 @@ mod tests {
         let mut i = 0;
         while i < period_one_snapshots {
             current_timestamp += time_period_one;
-            let mut clock_account = get_clock_for_time(current_timestamp);
+            clock_account = get_clock_for_time(current_timestamp);
 
             accounts.take_farming_snapshot(
                 &clock_key,
@@ -8073,7 +8063,7 @@ mod tests {
         let mut i = 0;
         while i < period_two_snapshots {
             current_timestamp += time_period_two;
-            let mut clock_account = get_clock_for_time(current_timestamp);
+            clock_account = get_clock_for_time(current_timestamp);
 
             accounts.take_farming_snapshot(
                 &clock_key,
@@ -8081,6 +8071,10 @@ mod tests {
             ).unwrap();
             i += 1;
         }
+        println!("current stamp {}", current_timestamp);
+
+        current_timestamp += 1;
+        clock_account = get_clock_for_time(current_timestamp);
 
         accounts.end_farming(
             &user_one.farming_ticket_key,
@@ -8106,12 +8100,13 @@ mod tests {
                    ));
 
         current_timestamp += time_period_three;
-        let mut clock_account = get_clock_for_time(current_timestamp);
+        clock_account = get_clock_for_time(current_timestamp);
 
         accounts.take_farming_snapshot(
             &clock_key,
             &mut clock_account,
         ).unwrap();
+
         accounts.withdraw_farmed(
             &user_one.user_farming_token_key,
             &mut user_one.user_farming_token_account,
@@ -8123,6 +8118,19 @@ mod tests {
             &clock_key,
             &mut clock_account,
         ).unwrap();
+
+        assert_eq!(Err(ProgramError::InvalidAccountData),
+                   accounts.withdraw_farmed(
+                       &user_one.user_farming_token_key,
+                       &mut user_one.user_farming_token_account,
+                       &user_one.farming_ticket_key,
+                       &mut user_one.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_one.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   ));
 
         accounts.withdraw_farmed(
             &user_two.user_farming_token_key,
@@ -8139,18 +8147,124 @@ mod tests {
         //let farming_state = FarmingState::unpack(&accounts.farming_state_account.data).unwrap();
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount, 0);
-        let farmed_tokens =
-            tokens_per_period
-                * ((period_one_snapshots +
-                time_period_two/(period_length as i64) * period_two_snapshots) as u64);
+        assert_eq!(swap_token_freeze.amount, tokens_to_freeze_two);
+        let period_one_tokens = tokens_per_period * period_one_snapshots;
+        let period_two_tokens = (tokens_per_period
+            * period_two_snapshots * time_period_two as u64) / period_length;
+        let period_three_tokens = (tokens_per_period
+            * time_period_three as u64) / period_length;
+
+        println!("{} {} {}",  period_one_tokens ,period_two_tokens, period_three_tokens);
+        let farmed_tokens_one = period_one_tokens + period_two_tokens;
+        let farmed_tokens_two = period_one_tokens + period_two_tokens;
+        let farmed_tokens_one = ((farmed_tokens_one as u128 * tokens_to_freeze_one as u128)
+            / ((tokens_to_freeze_one + tokens_to_freeze_two) as u128)) as u64;
+        let farmed_tokens_two = ((farmed_tokens_two as u128 * tokens_to_freeze_two as u128)
+            / ((tokens_to_freeze_one + tokens_to_freeze_two) as u128)) as u64
+            + period_three_tokens;
+        let farmed_tokens_total = farmed_tokens_one + farmed_tokens_two;
+
         let swap_farming_token =
             spl_token::state::Account::unpack(&state.swap_farming_token_account.data).unwrap();
-        assert_eq!(swap_farming_token.amount, token_amount - farmed_tokens);
-        let user_farming_token =
-            spl_token::state::Account::unpack(&state.owner_farming_token_account.data).unwrap();
-        assert_eq!(user_farming_token.amount, farmed_tokens);
 
+        assert_eq!(check_diff_within_error_range(
+            swap_farming_token.amount,
+            token_amount - farmed_tokens_total,
+            1,
+            100,
+        ), true);
+        let user_one_farming_token =
+            spl_token::state::Account::unpack(&user_one.user_farming_token_account.data).unwrap();
+        let user_two_farming_token =
+            spl_token::state::Account::unpack(&user_two.user_farming_token_account.data).unwrap();
+
+        assert_eq!(check_diff_within_error_range(
+            user_one_farming_token.amount,
+            farmed_tokens_one,
+            1,
+            100), true);
+        assert_eq!(check_diff_within_error_range(
+            user_two_farming_token.amount,
+            farmed_tokens_two,
+            1,
+            100), true);
         assert_eq!(FarmingTicket::is_initialized(user_one.farming_ticket_account.data.as_slice()), false);
     }
+/*
+    #[test]
+    fn test_custom_util() {
+        let user_key = Pubkey::new_unique();
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
+
+        let fees = Fees {
+            trade_fee_numerator,
+            trade_fee_denominator,
+            owner_trade_fee_numerator,
+            owner_trade_fee_denominator,
+            owner_withdraw_fee_numerator,
+            owner_withdraw_fee_denominator,
+            host_fee_numerator,
+            host_fee_denominator,
+        };
+
+        let token_a_amount = 1000000;
+        let token_b_amount = 2000000;
+        let curve_type = CurveType::ConstantProduct;
+        let swap_curve = SwapCurve {
+            curve_type,
+            calculator: Box::new(ConstantProductCurve {}),
+        };
+
+        let withdrawer_key = Pubkey::new_unique();
+        let initial_a = token_a_amount / 10;
+        let initial_b = token_b_amount / 10;
+        let initial_pool = swap_curve.calculator.new_pool_supply() / 10;
+        let withdraw_amount = initial_pool / 4;
+        let minimum_token_a_amount = initial_a / 40;
+        let minimum_token_b_amount = initial_b / 40;
+
+        let mut accounts =
+            SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
+
+
+
+        accounts.initialize_swap().unwrap();
+
+        let (
+            token_a_key,
+            mut token_a_account,
+            token_b_key,
+            mut token_b_account,
+            pool_key,
+            mut pool_account,
+        ) = accounts.setup_token_accounts(
+            &user_key,
+            &withdrawer_key,
+            initial_a,
+            initial_b,
+            initial_pool.try_into().unwrap(),
+        );
+
+        accounts
+            .withdraw_all_token_types(
+                &withdrawer_key,
+                &pool_key,
+                &mut pool_account,
+                &token_a_key,
+                &mut token_a_account,
+                &token_b_key,
+                &mut token_b_account,
+                withdraw_amount.try_into().unwrap(),
+                minimum_token_a_amount,
+                minimum_token_b_amount,
+            )
+            .unwrap();
+    }*/
 }

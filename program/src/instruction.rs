@@ -259,8 +259,8 @@ pub enum SwapInstruction {
     ///   0. `[]` Token-swap
     ///   1. `[writable]` Farming state
     ///   2. `[writable]` farming token account to be used for farming. Owner should be swap's authority
-    ///   3. `[writable]` farming token account to transfer farming tokens from
-    ///   4. `[signer]` previous account's transfer authority
+    ///   3. `[writable]` user farming token account to transfer farming tokens from
+    ///   4. `[signer]` user token account transfer authority
     ///   5. `[signer]` swap's fee account
     ///   6. `[]` swap authority
     ///   7. '[]` Clock sysvar
