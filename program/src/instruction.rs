@@ -261,10 +261,11 @@ pub enum SwapInstruction {
     ///   2. `[writable]` farming token account to be used for farming. Owner should be swap's authority
     ///   3. `[writable]` user farming token account to transfer farming tokens from
     ///   4. `[signer]` user token account transfer authority
-    ///   5. `[signer]` swap's fee account
-    ///   6. `[]` swap authority
-    ///   7. '[]` Clock sysvar
-    ///   8. '[]` Token program id
+    ///   5. `[]` swap's fee account
+    ///   6. `[signer]` swap's fee owner
+    ///   7. `[]` swap authority
+    ///   8. '[]` Clock sysvar
+    ///   9. '[]` Token program id
     InitializeFarming(InitializeFarming),
 
     /// Make a snapshot of current farming state
@@ -272,7 +273,8 @@ pub enum SwapInstruction {
     ///   0. `[]` Token-swap
     ///   1. `[writable]` Farming state
     ///   2. `[]` Swap's LP Token freeze account
-    ///   3. `[signer]` swap's fee account
+    ///   3. `[]` swap's fee account
+    ///   6. `[signer]` swap's fee owner
     ///   4. '[]` Clock sysvar
     TakeFarmingSnapshot,
 }
@@ -830,6 +832,7 @@ pub fn initialize_farming(
     user_farming_token_pubkey: &Pubkey,
     user_transfer_authority_pubkey: &Pubkey,
     fee_pubkey: &Pubkey,
+    fee_authority_pubkey: &Pubkey,
     swap_authority_pubkey: &Pubkey,
     clock: &Pubkey,
     instruction: InitializeFarming,
@@ -842,7 +845,8 @@ pub fn initialize_farming(
         AccountMeta::new(*farming_token_pubkey, false),
         AccountMeta::new(*user_farming_token_pubkey, false),
         AccountMeta::new_readonly(*user_transfer_authority_pubkey, true),
-        AccountMeta::new_readonly(*fee_pubkey, true),
+        AccountMeta::new_readonly(*fee_pubkey, false),
+        AccountMeta::new_readonly(*fee_authority_pubkey, true),
         AccountMeta::new_readonly(*swap_authority_pubkey, false),
         AccountMeta::new_readonly(*clock, false),
         AccountMeta::new_readonly(*token_program_id, false),
@@ -858,11 +862,11 @@ pub fn initialize_farming(
 /// Creates a 'take_farming_snapshot' instruction.
 pub fn take_farming_snapshot(
     program_id: &Pubkey,
-    token_program_id: &Pubkey,
     swap_pubkey: &Pubkey,
     farming_state_pubkey: &Pubkey,
     token_freeze_account_pubkey: &Pubkey,
     fee_pubkey: &Pubkey,
+    fee_authority: &Pubkey,
     clock: &Pubkey,
 ) -> Result<Instruction, ProgramError> {
     let data = SwapInstruction::TakeFarmingSnapshot.pack();
@@ -871,9 +875,9 @@ pub fn take_farming_snapshot(
         AccountMeta::new_readonly(*swap_pubkey, false),
         AccountMeta::new(*farming_state_pubkey, false),
         AccountMeta::new_readonly(*token_freeze_account_pubkey, false),
-        AccountMeta::new_readonly(*fee_pubkey, true),
+        AccountMeta::new_readonly(*fee_pubkey, false),
+        AccountMeta::new_readonly(*fee_authority, true),
         AccountMeta::new_readonly(*clock, false),
-        AccountMeta::new_readonly(*token_program_id, false),
     ];
 
     Ok(Instruction {

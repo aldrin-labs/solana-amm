@@ -1310,9 +1310,9 @@ impl Processor {
         let user_farming_token_info = next_account_info(account_info_iter)?;
         let user_transfer_authority_info = next_account_info(account_info_iter)?;
         let fee_account = next_account_info(account_info_iter)?;
+        let fee_authority = next_account_info(account_info_iter)?;
         let authority_info = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
-
         let token_program_info = next_account_info(account_info_iter)?;
 
         let clock = &Clock::from_account_info(clock_info)?;
@@ -1320,6 +1320,10 @@ impl Processor {
 
         let farming_token =
             Self::unpack_token_account(farming_token_info, &token_swap.token_program_id())?;
+
+        let fee_token =
+            Self::unpack_token_account(fee_account, &token_swap.token_program_id())?;
+
 
         if *clock_info.key != solana_program::sysvar::clock::ID {
             return Err(ProgramError::InvalidAccountData);
@@ -1329,8 +1333,13 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
-        if *fee_account.key != *token_swap.pool_fee_account() || !fee_account.is_signer {
+        if !fee_authority.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
+        }
+
+        if *fee_account.key != *token_swap.pool_fee_account() ||
+            fee_token.owner != *fee_authority.key {
+            return Err(ProgramError::InvalidAccountData);
         }
 
         if *authority_info.key != farming_token.owner {
@@ -1383,13 +1392,17 @@ impl Processor {
         let swap_info = next_account_info(account_info_iter)?;
         let farming_info = next_account_info(account_info_iter)?;
         let token_freeze_account_info = next_account_info(account_info_iter)?;
-        let authority_info = next_account_info(account_info_iter)?;
+        let fee_account = next_account_info(account_info_iter)?;
+        let fee_authority = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
 
         let clock = &Clock::from_account_info(clock_info)?;
         let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
         let farming_state = FarmingState::unpack(&farming_info.data.borrow())?;
         let token_freeze_account = spl_token::state::Account::unpack(&token_freeze_account_info.data.borrow())?;
+
+        let fee_token =
+            Self::unpack_token_account(fee_account, &token_swap.token_program_id())?;
 
         if *clock_info.key != solana_program::sysvar::clock::ID {
             return Err(ProgramError::InvalidAccountData);
@@ -1399,8 +1412,13 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
-        if *authority_info.key != *token_swap.pool_fee_account() || !authority_info.is_signer {
+        if !fee_authority.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
+        }
+
+        if *fee_account.key != *token_swap.pool_fee_account() ||
+            fee_token.owner != *fee_authority.key {
+            return Err(ProgramError::InvalidAccountData);
         }
 
         Self::check_farming_accounts(
@@ -2392,6 +2410,11 @@ mod tests {
             tokens_per_period: u64,
             period_length: u64,
         ) -> ProgramResult {
+            let fee_authority = spl_token::state::Account::unpack(
+                self.pool_fee_account.data.as_slice())
+                .expect("")
+                .owner;
+
             let user_transfer_authority_key = Pubkey::new_unique();
             // approve user transfer authority to take out pool tokens
             do_process_instruction(
@@ -2422,6 +2445,7 @@ mod tests {
                     &user_farming_token_key,
                     &user_transfer_authority_key,
                     &self.pool_fee_key,
+                    &fee_authority,
                     &self.authority_key,
                     &clock_key,
                     InitializeFarming {
@@ -2439,8 +2463,42 @@ mod tests {
                     &mut Account::default(),
                     &mut self.pool_fee_account,
                     &mut Account::default(),
+                    &mut Account::default(),
                     &mut clock_account,
                     &mut Account::default(),
+                ],
+            )
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub fn take_farming_snapshot(
+            &mut self,
+            clock_key: &Pubkey,
+            mut clock_account: &mut Account,
+        ) -> ProgramResult {
+            let fee_authority = spl_token::state::Account::unpack(
+                self.pool_fee_account.data.as_slice())
+                .expect("")
+                .owner;
+
+            do_process_instruction(
+                take_farming_snapshot(
+                    &SWAP_PROGRAM_ID,
+                    &self.swap_key,
+                    &self.farming_state_key,
+                    &self.token_freeze_key,
+                    &self.pool_fee_key,
+                    &fee_authority,
+                    &clock_key,
+                )
+                    .unwrap(),
+                vec![
+                    &mut self.swap_account,
+                    &mut self.farming_state_account,
+                    &mut self.token_freeze_account,
+                    &mut self.pool_fee_account,
+                    &mut Account::default(),
+                    &mut clock_account,
                 ],
             )
         }
@@ -2503,33 +2561,6 @@ mod tests {
                     &mut Account::default(),
                     &mut Account::default(),
                     &mut Account::default(),
-                    &mut clock_account,
-                ],
-            )
-        }
-
-        #[allow(clippy::too_many_arguments)]
-        pub fn take_farming_snapshot(
-            &mut self,
-            clock_key: &Pubkey,
-            mut clock_account: &mut Account,
-        ) -> ProgramResult {
-            do_process_instruction(
-                take_farming_snapshot(
-                    &SWAP_PROGRAM_ID,
-                    &TOKEN_PROGRAM_ID,
-                    &self.swap_key,
-                    &self.farming_state_key,
-                    &self.token_freeze_key,
-                    &self.pool_fee_key,
-                    &clock_key,
-                )
-                    .unwrap(),
-                vec![
-                    &mut self.swap_account,
-                    &mut self.farming_state_account,
-                    &mut self.token_freeze_account,
-                    &mut self.pool_fee_account,
                     &mut clock_account,
                 ],
             )
