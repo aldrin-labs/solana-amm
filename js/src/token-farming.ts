@@ -26,9 +26,9 @@ import { Numberu64 } from '.';
  */
 export const TokenFarmingLayout: typeof BufferLayout.Structure = BufferLayout.struct(
   [
-    BufferLayout.uint64('discriminator'),
+    Layout.uint64('discriminator'),
     BufferLayout.u8('isInitialized'),
-    BufferLayout.uint64('tokensUnlocked'),
+    Layout.uint64('tokensUnlocked'),
     Layout.uint64('tokensTotal'),
     Layout.uint64('tokensPerPeriod'),
     Layout.uint64('periodLength'),
@@ -42,9 +42,9 @@ export const TokenFarmingLayout: typeof BufferLayout.Structure = BufferLayout.st
 
 export const FarmingTicketLayout: typeof BufferLayout.Structure = BufferLayout.struct(
   [
-    BufferLayout.uint64('discriminator'),
+    Layout.uint64('discriminator'),
     BufferLayout.u8('isInitialized'),
-    BufferLayout.uint64('tokensFrozen'),
+    Layout.uint64('tokensFrozen'),
     Layout.uint64('startTime'),
     Layout.uint64('endTime'),
     Layout.publicKey('tokenAuthority'),
@@ -221,11 +221,8 @@ export class TokenFarming {
 
 
   /**
-   * Create a new Token Swap
-   *
-   * @param connection The connection to use
- 
-   * @return Token object for the newly minted token, Public key of the account holding the total supply of new tokens
+   * Create a new Token Farming
+   * @return New object holding FarmingState fields to be used in calls to the farming feature
    */
   static async initializeTokenFarming(   
     connection: Connection,
@@ -296,15 +293,7 @@ export class TokenFarming {
   }
 
   /**
-   * 
-   * @param userSource User's source token account
-   * @param poolSource Pool's source token account
-   * @param poolDestination Pool's destination token account
-   * @param userDestination User's destination token account
-   * @param hostFeeAccount Host account to gather fees
-   * @param userTransferAuthority Account delegated to transfer user's tokens
-   * @param amountIn Amount to transfer from source account
-   * @param minimumAmountOut Minimum amount of tokens the user will receive
+   * Take a farming snapshot
    */
   async takeFarmingSnapshot(
     clock: PublicKey,
@@ -339,6 +328,18 @@ export class TokenFarming {
     authority: PublicKey,
   ): TransactionInstruction {
 
+    const dataLayout = BufferLayout.struct([
+      BufferLayout.u8('instruction'),            
+    ]);
+
+    const data = Buffer.alloc(dataLayout.span);
+    dataLayout.encode(
+      {
+        instruction: 10, // takeFarmingSnapshot instruction                
+      },
+      data,
+    );
+
     const keys = [
       {pubkey: tokenSwap, isSigner: false, isWritable: false},
       {pubkey: farmingState, isSigner: false, isWritable: true},
@@ -351,32 +352,37 @@ export class TokenFarming {
     return new TransactionInstruction({
       keys,
       programId: swapProgramId,
+      data,
     });
   }
 
   /**
-   * Deposit tokens into the pool
-   * @param userAccountA User account for token A
-   * @param userAccountB User account for token B
-   * @param poolAccount User account for pool token
-   * @param userTransferAuthority Account delegated to transfer user's tokens
-   * @param poolTokenAmount Amount of pool tokens to mint
-   * @param maximumTokenA The maximum amount of token A to deposit
-   * @param maximumTokenB The maximum amount of token B to deposit
+   * Start token farming
    */
   async startFarming(
-    poolAccount: PublicKey,
+    farmingTicketAccount: PublicKey,
+    userPoolTokenAccount: PublicKey,
     userTransferAuthority: Account,
-    maximumTokenB: number | Numberu64,
+    userWalletAuthority: Account,
+    clock: PublicKey,
+    poolTokenAmount: number | Numberu64,
   ): Promise<TransactionSignature> {
     return await sendAndConfirmTransaction(
-      'depositAllTokenTypes',
+      'startFarming',
       this.connection,
       new Transaction().add(
         TokenFarming.startFarmingInstruction(
-          this.tokenSwap,
-          this.authority,
-          
+          this.tokenSwapAccount,
+          this.farmingStateAccount,
+          farmingTicketAccount,
+          this.tokenFreezeAccount,
+          userPoolTokenAccount,
+          userTransferAuthority.publicKey,
+          userWalletAuthority.publicKey,
+          this.tokenProgramId,
+          clock,
+          this.swapProgramId,
+          poolTokenAmount
         ),
       ),
       this.payer,
@@ -386,39 +392,41 @@ export class TokenFarming {
 
   static startFarmingInstruction(
     tokenSwap: PublicKey,
-    authority: PublicKey,
-    
-    maximumTokenB: number | Numberu64,
+    farmingState: PublicKey,
+    farmingTicketAccount: PublicKey,
+    swapTokenFreezeAccount: PublicKey,
+    userPoolTokenAccount: PublicKey,
+    userAuthority: PublicKey,
+    userPubkey: PublicKey,
+    tokenProgramId: PublicKey,
+    clock: PublicKey,
+    swapProgramId: PublicKey,
+    poolTokenAmount: number | Numberu64,
   ): TransactionInstruction {
     const dataLayout = BufferLayout.struct([
       BufferLayout.u8('instruction'),
-      Layout.uint64('poolTokenAmount'),
-      Layout.uint64('maximumTokenA'),
-      Layout.uint64('maximumTokenB'),
+      Layout.uint64('poolTokenAmount'),      
     ]);
 
     const data = Buffer.alloc(dataLayout.span);
     dataLayout.encode(
       {
-        instruction: 2, // Deposit instruction
-        poolTokenAmount: new Numberu64(poolTokenAmount).toBuffer(),
-        maximumTokenA: new Numberu64(maximumTokenA).toBuffer(),
-        maximumTokenB: new Numberu64(maximumTokenB).toBuffer(),
+        instruction: 6, // startFarming instruction
+        poolTokenAmount: new Numberu64(poolTokenAmount).toBuffer(),        
       },
       data,
     );
 
     const keys = [
       {pubkey: tokenSwap, isSigner: false, isWritable: false},
-      {pubkey: authority, isSigner: false, isWritable: false},
-      {pubkey: userTransferAuthority, isSigner: true, isWritable: false},
-      {pubkey: sourceA, isSigner: false, isWritable: true},
-      {pubkey: sourceB, isSigner: false, isWritable: true},
-      {pubkey: intoA, isSigner: false, isWritable: true},
-      {pubkey: intoB, isSigner: false, isWritable: true},
-      {pubkey: poolToken, isSigner: false, isWritable: true},
-      {pubkey: poolAccount, isSigner: false, isWritable: true},
+      {pubkey: farmingState, isSigner: false, isWritable: false},
+      {pubkey: farmingTicketAccount, isSigner: true, isWritable: true},
+      {pubkey: swapTokenFreezeAccount, isSigner: false, isWritable: false},
+      {pubkey: userPoolTokenAccount, isSigner: false, isWritable: false},
+      {pubkey: userAuthority, isSigner: true, isWritable: false},
+      {pubkey: userPubkey, isSigner: true, isWritable: false},
       {pubkey: tokenProgramId, isSigner: false, isWritable: false},
+      {pubkey: clock, isSigner: false, isWritable: false},
     ];
     return new TransactionInstruction({
       keys,
@@ -428,83 +436,75 @@ export class TokenFarming {
   }
 
   /**
-   * Withdraw tokens from the pool
-   *
-   * @param userAccountA User account for token A
-   * @param userAccountB User account for token B
-   * @param poolAccount User account for pool token
-   * @param userTransferAuthority Account delegated to transfer user's tokens
-   * @param poolTokenAmount Amount of pool tokens to burn
-   * @param minimumTokenA The minimum amount of token A to withdraw
-   * @param minimumTokenB The minimum amount of token B to withdraw
+   * End token farming
    */
   async endFarming(
-    poolAccount: PublicKey,
-    userTransferAuthority: Account,
-    minimumTokenB: number | Numberu64,
+    farmingTicketAccount: PublicKey,
+    userPoolTokenAccount: PublicKey,    
+    userWallet: Account,
+    clock: PublicKey,
   ): Promise<TransactionSignature> {
     return await sendAndConfirmTransaction(
-      'withdraw',
+      'endFarming',
       this.connection,
       new Transaction().add(
         TokenFarming.endFarmingInstruction(
-          this.tokenSwap,         
-          minimumTokenB,
+          this.tokenSwapAccount,         
+          this.farmingStateAccount,
+          farmingTicketAccount,
+          this.tokenFreezeAccount,
+          this.farmingTokenAccount,
+          this.swapAuthority,
+          userPoolTokenAccount,
+          userWallet.publicKey,
+          clock,
+          this.tokenProgramId,
+          this.swapProgramId,
         ),
       ),
-      this.payer,
-      userTransferAuthority,
+      this.payer,      
+      userWallet
     );
   }
 
   static endFarmingInstruction(
     tokenSwap: PublicKey,
-    authority: PublicKey,
-    userTransferAuthority: PublicKey,
-    poolMint: PublicKey,
-    feeAccount: PublicKey,
-    sourcePoolAccount: PublicKey,
-    fromA: PublicKey,
-    fromB: PublicKey,
-    userAccountA: PublicKey,
-    userAccountB: PublicKey,
-    swapProgramId: PublicKey,
+    farmingState: PublicKey,
+    farmingTicket: PublicKey,
+    tokenFreezeAccount: PublicKey,
+    swapFarmingTokenAccount: PublicKey,
+    swapAuthority: PublicKey,
+    userPoolTokenAccount: PublicKey,
+    userPubkey: PublicKey,
+    clock: PublicKey,
     tokenProgramId: PublicKey,
-    poolTokenAmount: number | Numberu64,
-    minimumTokenA: number | Numberu64,
-    minimumTokenB: number | Numberu64,
+    swapProgramId: PublicKey,
   ): TransactionInstruction {
     const dataLayout = BufferLayout.struct([
-      BufferLayout.u8('instruction'),
-      Layout.uint64('poolTokenAmount'),
-      Layout.uint64('minimumTokenA'),
-      Layout.uint64('minimumTokenB'),
+      BufferLayout.u8('instruction'),   
     ]);
 
     const data = Buffer.alloc(dataLayout.span);
     dataLayout.encode(
       {
-        instruction: 3, // Withdraw instruction
-        poolTokenAmount: new Numberu64(poolTokenAmount).toBuffer(),
-        minimumTokenA: new Numberu64(minimumTokenA).toBuffer(),
-        minimumTokenB: new Numberu64(minimumTokenB).toBuffer(),
+        instruction: 8, // endFarming instruction       
       },
       data,
     );
 
     const keys = [
       {pubkey: tokenSwap, isSigner: false, isWritable: false},
-      {pubkey: authority, isSigner: false, isWritable: false},
-      {pubkey: userTransferAuthority, isSigner: true, isWritable: false},
-      {pubkey: poolMint, isSigner: false, isWritable: true},
-      {pubkey: sourcePoolAccount, isSigner: false, isWritable: true},
-      {pubkey: fromA, isSigner: false, isWritable: true},
-      {pubkey: fromB, isSigner: false, isWritable: true},
-      {pubkey: userAccountA, isSigner: false, isWritable: true},
-      {pubkey: userAccountB, isSigner: false, isWritable: true},
-      {pubkey: feeAccount, isSigner: false, isWritable: true},
+      {pubkey: farmingState, isSigner: false, isWritable: false},
+      {pubkey: farmingTicket, isSigner: false, isWritable: true},
+      {pubkey: tokenFreezeAccount, isSigner: false, isWritable: true},
+      {pubkey: swapFarmingTokenAccount, isSigner: false, isWritable: true},
+      {pubkey: swapAuthority, isSigner: false, isWritable: false},
+      {pubkey: userPoolTokenAccount, isSigner: false, isWritable: true},      
+      {pubkey: userPubkey, isSigner: false, isWritable: false},
+      {pubkey: clock, isSigner: false, isWritable: false},
       {pubkey: tokenProgramId, isSigner: false, isWritable: false},
     ];
+
     return new TransactionInstruction({
       keys,
       programId: swapProgramId,
@@ -521,77 +521,66 @@ export class TokenFarming {
    * @param minimumPoolTokenAmount Minimum amount of pool tokens to mint
    */
   async withdrawFarmed(
-    userAccount: PublicKey,
-    poolAccount: PublicKey,
-    userTransferAuthority: Account,
-    sourceTokenAmount: number | Numberu64,
-    minimumPoolTokenAmount: number | Numberu64,
+    farmingTicket: PublicKey,
+    userFarmingTokenAccount: PublicKey,
+    userWallet: Account,
+    clock: PublicKey,
   ): Promise<TransactionSignature> {
     return await sendAndConfirmTransaction(
-      'depositSingleTokenTypeExactAmountIn',
+      'withdrawFarmed',
       this.connection,
       new Transaction().add(
-        TokenSwap.depositSingleTokenTypeExactAmountInInstruction(
-          this.tokenSwap,
-          this.authority,
-          userTransferAuthority.publicKey,
-          userAccount,
-          this.tokenAccountA,
-          this.tokenAccountB,
-          this.poolToken,
-          poolAccount,
-          this.swapProgramId,
+        TokenFarming.withdrawFarmedInstruction(
+          this.tokenSwapAccount,
+          this.farmingStateAccount,
+          farmingTicket,
+          this.farmingTokenAccount,
+          this.swapAuthority,
+          userFarmingTokenAccount,
+          userWallet.publicKey,
+          clock,
           this.tokenProgramId,
-          sourceTokenAmount,
-          minimumPoolTokenAmount,
+          this.swapProgramId
         ),
       ),
-      this.payer,
-      userTransferAuthority,
+      this.payer,  
+      userWallet    
     );
   }
 
   static withdrawFarmedInstruction(
     tokenSwap: PublicKey,
-    authority: PublicKey,
-    userTransferAuthority: PublicKey,
-    source: PublicKey,
-    intoA: PublicKey,
-    intoB: PublicKey,
-    poolToken: PublicKey,
-    poolAccount: PublicKey,
-    swapProgramId: PublicKey,
+    farmingState: PublicKey,
+    farmingTicket: PublicKey,
+    swapFarmingTokenAccount: PublicKey,
+    swapAuthority: PublicKey,
+    userFarmingTokenAccount: PublicKey,
+    userPubkey: PublicKey,
+    clock: PublicKey,
     tokenProgramId: PublicKey,
-    sourceTokenAmount: number | Numberu64,
-    minimumPoolTokenAmount: number | Numberu64,
+    swapProgramId  : PublicKey,
   ): TransactionInstruction {
     const dataLayout = BufferLayout.struct([
-      BufferLayout.u8('instruction'),
-      Layout.uint64('sourceTokenAmount'),
-      Layout.uint64('minimumPoolTokenAmount'),
+      BufferLayout.u8('instruction'),    
     ]);
 
     const data = Buffer.alloc(dataLayout.span);
     dataLayout.encode(
       {
-        instruction: 4, // depositSingleTokenTypeExactAmountIn instruction
-        sourceTokenAmount: new Numberu64(sourceTokenAmount).toBuffer(),
-        minimumPoolTokenAmount: new Numberu64(
-          minimumPoolTokenAmount,
-        ).toBuffer(),
+        instruction: 7, // withdrawFarmed instruction       
       },
       data,
     );
 
     const keys = [
       {pubkey: tokenSwap, isSigner: false, isWritable: false},
-      {pubkey: authority, isSigner: false, isWritable: false},
-      {pubkey: userTransferAuthority, isSigner: true, isWritable: false},
-      {pubkey: source, isSigner: false, isWritable: true},
-      {pubkey: intoA, isSigner: false, isWritable: true},
-      {pubkey: intoB, isSigner: false, isWritable: true},
-      {pubkey: poolToken, isSigner: false, isWritable: true},
-      {pubkey: poolAccount, isSigner: false, isWritable: true},
+      {pubkey: farmingState, isSigner: false, isWritable: false},
+      {pubkey: farmingTicket, isSigner: false, isWritable: true},
+      {pubkey: swapFarmingTokenAccount, isSigner: false, isWritable: true},
+      {pubkey: swapAuthority, isSigner: false, isWritable: false},
+      {pubkey: userFarmingTokenAccount, isSigner: false, isWritable: true},
+      {pubkey: userPubkey, isSigner: true, isWritable: false},
+      {pubkey: clock, isSigner: false, isWritable: false},
       {pubkey: tokenProgramId, isSigner: false, isWritable: false},
     ];
     return new TransactionInstruction({
@@ -599,16 +588,5 @@ export class TokenFarming {
       programId: swapProgramId,
       data,
     });
-  }
-
-  /**
-   * Withdraw tokens from the pool
-   *
-   * @param userAccount User account to receive token A or B
-   * @param poolAccount User account to burn pool token
-   * @param userTransferAuthority Account delegated to transfer user's tokens
-   * @param destinationTokenAmount The amount of token A or B to withdraw
-   * @param maximumPoolTokenAmount Maximum amount of pool tokens to burn
-   */
-  
+  }  
 }

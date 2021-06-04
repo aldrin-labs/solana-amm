@@ -15,8 +15,10 @@ import * as Layout from './layout';
 import {sendAndConfirmTransaction} from './util/send-and-confirm-transaction';
 import {loadAccount} from './util/account';
 
+export { TokenFarmingLayout } from './token-farming'
+
 export const TOKEN_SWAP_PROGRAM_ID: PublicKey = new PublicKey(
-  'SwaPpA9LAaLfeLi3a68M4DjnLqgtticKg6CnyNwgAC8',
+  'zbYGvYSANmoNN8rSLcvVmKcuzEASyjfSENtnKNbu9cW',
 );
 
 /**
@@ -117,6 +119,7 @@ export class TokenSwap {
     public swapProgramId: PublicKey,
     public tokenProgramId: PublicKey,
     public poolToken: PublicKey,
+    public tokenFreezeAccount: PublicKey,
     public feeAccount: PublicKey,
     public authority: PublicKey,
     public tokenAccountA: PublicKey,
@@ -132,6 +135,7 @@ export class TokenSwap {
     public hostFeeNumerator: Numberu64,
     public hostFeeDenominator: Numberu64,
     public curveType: number,
+    public farmingState: PublicKey,
     public payer: Account,
   ) {
     this.connection = connection;
@@ -139,6 +143,7 @@ export class TokenSwap {
     this.swapProgramId = swapProgramId;
     this.tokenProgramId = tokenProgramId;
     this.poolToken = poolToken;
+    this.tokenFreezeAccount = tokenFreezeAccount;
     this.feeAccount = feeAccount;
     this.authority = authority;
     this.tokenAccountA = tokenAccountA;
@@ -154,6 +159,7 @@ export class TokenSwap {
     this.hostFeeNumerator = hostFeeNumerator;
     this.hostFeeDenominator = hostFeeDenominator;
     this.curveType = curveType;
+    this.farmingState = farmingState;
     this.payer = payer;
   }
 
@@ -258,8 +264,11 @@ export class TokenSwap {
       [address.toBuffer()],
       programId,
     );
-
+    
+    
     const poolToken = new PublicKey(tokenSwapData.tokenPool);
+    const farmingState = new PublicKey(tokenSwapData.farmingState);
+    const tokenFreezeAccount = new PublicKey(tokenSwapData.tokenFreezeAccount);
     const feeAccount = new PublicKey(tokenSwapData.feeAccount);
     const tokenAccountA = new PublicKey(tokenSwapData.tokenAccountA);
     const tokenAccountB = new PublicKey(tokenSwapData.tokenAccountB);
@@ -299,6 +308,7 @@ export class TokenSwap {
       programId,
       tokenProgramId,
       poolToken,
+      tokenFreezeAccount,
       feeAccount,
       authority,
       tokenAccountA,
@@ -314,6 +324,7 @@ export class TokenSwap {
       hostFeeNumerator,
       hostFeeDenominator,
       curveType,
+      farmingState,
       payer,
     );
   }
@@ -348,6 +359,8 @@ export class TokenSwap {
     mintB: PublicKey,
     feeAccount: PublicKey,
     tokenAccountPool: PublicKey,
+    tokenFreezeAccount: PublicKey,
+    farmingState: PublicKey,
     swapProgramId: PublicKey,
     tokenProgramId: PublicKey,
     nonce: number,
@@ -368,6 +381,7 @@ export class TokenSwap {
       swapProgramId,
       tokenProgramId,
       poolToken,
+      tokenFreezeAccount,
       feeAccount,
       authority,
       tokenAccountA,
@@ -383,6 +397,7 @@ export class TokenSwap {
       new Numberu64(hostFeeNumerator),
       new Numberu64(hostFeeDenominator),
       curveType,
+      farmingState,
       payer,
     );
 

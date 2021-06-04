@@ -1,5 +1,3 @@
-// @flow
-
 import {
   Account,
   Connection,
@@ -9,15 +7,12 @@ import {
 } from '@solana/web3.js';
 import {AccountLayout, Token, TOKEN_PROGRAM_ID} from '@solana/spl-token';
 
-import {
-  TokenSwap,
-  CurveType,
-  TOKEN_SWAP_PROGRAM_ID,
-} from '../client/token-swap';
-import {sendAndConfirmTransaction} from '../client/util/send-and-confirm-transaction';
-import {newAccountWithLamports} from '../client/util/new-account-with-lamports';
-import {url} from '../url';
-import {sleep} from '../client/util/sleep';
+import {TokenSwap, CurveType, TOKEN_SWAP_PROGRAM_ID} from '../src';
+import {sendAndConfirmTransaction} from '../src/util/send-and-confirm-transaction';
+import {newAccountWithLamports} from '../src/util/new-account-with-lamports';
+import {url} from '../src/util/url';
+import {sleep} from '../src/util/sleep';
+import { TokenFarming, TokenFarmingLayout } from '../src/token-farming';
 
 // The following globals are created by `createTokenSwap` and used by subsequent tests
 // Token swap
@@ -39,18 +34,17 @@ let tokenAccountA: PublicKey;
 let tokenAccountB: PublicKey;
 
 // Hard-coded fee address, for testing production mode
-const SWAP_PROGRAM_OWNER_FEE_ADDRESS =
-  process.env.SWAP_PROGRAM_OWNER_FEE_ADDRESS;
+const SWAP_PROGRAM_OWNER_FEE_ADDRESS = '9VHVV44zDSmmdDMUHk4fwotXioimN78yzNDgzaVUP5Fb';
 
 // Pool fees
 const TRADING_FEE_NUMERATOR = 25;
 const TRADING_FEE_DENOMINATOR = 10000;
 const OWNER_TRADING_FEE_NUMERATOR = 5;
 const OWNER_TRADING_FEE_DENOMINATOR = 10000;
-const OWNER_WITHDRAW_FEE_NUMERATOR = SWAP_PROGRAM_OWNER_FEE_ADDRESS ? 0 : 1;
-const OWNER_WITHDRAW_FEE_DENOMINATOR = SWAP_PROGRAM_OWNER_FEE_ADDRESS ? 0 : 6;
-const HOST_FEE_NUMERATOR = 20;
-const HOST_FEE_DENOMINATOR = 100;
+const OWNER_WITHDRAW_FEE_NUMERATOR = 0;
+const OWNER_WITHDRAW_FEE_DENOMINATOR = 0;
+const HOST_FEE_NUMERATOR = 0;
+const HOST_FEE_DENOMINATOR = 0;
 
 // curve type used to calculate swaps and deposits
 const CURVE_TYPE = CurveType.ConstantProduct;
@@ -65,7 +59,7 @@ let currentFeeAmount = 0;
 // need to get slightly tweaked in the two cases.
 const SWAP_AMOUNT_IN = 100000;
 const SWAP_AMOUNT_OUT = SWAP_PROGRAM_OWNER_FEE_ADDRESS ? 90661 : 90674;
-const SWAP_FEE = SWAP_PROGRAM_OWNER_FEE_ADDRESS ? 22273 : 22276;
+const SWAP_FEE = SWAP_PROGRAM_OWNER_FEE_ADDRESS ? 22273 : 22277;
 const HOST_SWAP_FEE = SWAP_PROGRAM_OWNER_FEE_ADDRESS
   ? Math.floor((SWAP_FEE * HOST_FEE_NUMERATOR) / HOST_FEE_DENOMINATOR)
   : 0;
@@ -76,14 +70,14 @@ const DEFAULT_POOL_TOKEN_AMOUNT = 1000000000;
 // Pool token amount to withdraw / deposit
 const POOL_TOKEN_AMOUNT = 10000000;
 
-function assert(condition, message) {
+function assert(condition: boolean, message?: string) {
   if (!condition) {
     console.log(Error().stack + ':token-test.js');
     throw message || 'Assertion failed';
   }
 }
 
-let connection;
+let connection: Connection;
 async function getConnection(): Promise<Connection> {
   if (connection) return connection;
 
@@ -96,7 +90,7 @@ async function getConnection(): Promise<Connection> {
 
 export async function createTokenSwap(): Promise<void> {
   const connection = await getConnection();
-  const payer = await newAccountWithLamports(connection, 1000000000);
+  const payer = await newAccountWithLamports(connection, 10000000000);
   owner = await newAccountWithLamports(connection, 1000000000);
   const tokenSwapAccount = new Account();
 
@@ -150,6 +144,25 @@ export async function createTokenSwap(): Promise<void> {
   console.log('minting token B to swap');
   await mintB.mintTo(tokenAccountB, owner, [], currentSwapTokenB);
 
+  const tokenFreezeAccount = await tokenPool.createAccount(authority);
+  const balanceNeeded = await TokenFarming.getMinBalanceRentForExemptTokenSwap(
+    connection,
+  );
+
+  const farmingState = new Account();
+  await sendAndConfirmTransaction('create farmingState account', connection, 
+  new Transaction().add(
+    SystemProgram.createAccount({
+      fromPubkey: payer.publicKey,
+      newAccountPubkey: farmingState.publicKey,
+      lamports: balanceNeeded,
+      space: TokenFarmingLayout.span,
+      programId: TOKEN_SWAP_PROGRAM_ID,
+    }),
+  ), payer);
+
+
+
   console.log('creating token swap');
   const swapPayer = await newAccountWithLamports(connection, 10000000000);
   tokenSwap = await TokenSwap.createTokenSwap(
@@ -164,6 +177,8 @@ export async function createTokenSwap(): Promise<void> {
     mintB.publicKey,
     feeAccount,
     tokenAccountPool,
+    tokenFreezeAccount,
+    farmingState.publicKey,
     TOKEN_SWAP_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     nonce,
@@ -356,7 +371,7 @@ export async function createAccountAndSwapAtomic(): Promise<void> {
   let userAccountA = await mintA.createAccount(owner.publicKey);
   await mintA.mintTo(userAccountA, owner, [], SWAP_AMOUNT_IN);
 
-  // $FlowFixMe[prop-missing]
+  // @ts-ignore
   const balanceNeeded = await Token.getMinBalanceRentForExemptAccount(
     connection,
   );
