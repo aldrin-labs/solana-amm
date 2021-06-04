@@ -10,5 +10,7 @@ target
 # Node.js modules
 node_modules
 
+js/dist
+
 # JB IDE folder
 .idea

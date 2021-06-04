@@ -286,6 +286,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ccai-token-swap"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "arrayref",
+ "enum_dispatch",
+ "hex-literal",
+ "num-derive",
+ "num-traits",
+ "proptest",
+ "sim",
+ "solana-program",
+ "solana-sdk",
+ "spl-math",
+ "spl-token",
+ "thiserror",
+]
+
+[[package]]
 name = "cfg-if"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2141,25 +2160,6 @@ dependencies = [
  "num-traits",
  "num_enum",
  "solana-program",
- "thiserror",
-]
-
-[[package]]
-name = "spl-token-swap"
-version = "2.1.0"
-dependencies = [
- "arbitrary",
- "arrayref",
- "enum_dispatch",
- "hex-literal",
- "num-derive",
- "num-traits",
- "proptest",
- "sim",
- "solana-program",
- "solana-sdk",
- "spl-math",
- "spl-token",
  "thiserror",
 ]
 
