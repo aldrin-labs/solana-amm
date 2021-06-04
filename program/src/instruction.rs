@@ -131,7 +131,9 @@ pub enum SwapInstruction {
     ///   Must be empty, not owned by swap authority
     ///   6. `[writable]` Pool Token Account to deposit the initial pool token
     ///   supply.  Must be empty, not owned by swap authority.
-    ///   7. '[]` Token program id
+    ///   7. `[]` Farming state account
+    ///   8. `[]` Token freeze account. Must be owned by swap authority.
+    ///   9. '[]` Token program id
     Initialize(Initialize),
 
     ///   Swap the tokens in the pool.
@@ -248,7 +250,6 @@ pub enum SwapInstruction {
     ///   4. `[writable]` state's farming token account
     ///   5. `[]` swap's authority
     ///   6. `[writable]` user's LP token account
-    ///   7. `[writable]` user's far,omg token account
     ///   8. `[signer]` user's authority from farming ticket
     ///   9. '[]` Clock sysvar
     ///   10. '[]` Token program id
