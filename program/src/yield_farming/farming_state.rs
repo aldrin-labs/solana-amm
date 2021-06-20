@@ -19,9 +19,9 @@ pub const NO_WITHDRAWAL_TIME: UnixTimestamp = 60 * 60 * 24 * 30 * 6; ///Nearly 6
 pub struct FarmingState {
     pub discriminator: u64,
     pub is_initialized: bool,
-    pub tokens_unlocked: u64,
-    pub tokens_total: u64,
+    pub tokens_unlocked: u64,   
     pub tokens_per_period: u64,
+    pub tokens_total: u64,
     pub period_length: u64,
     pub start_time: UnixTimestamp,
     pub current_time: UnixTimestamp,

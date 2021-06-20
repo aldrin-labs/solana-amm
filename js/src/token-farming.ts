@@ -29,8 +29,8 @@ export const TokenFarmingLayout: typeof BufferLayout.Structure = BufferLayout.st
     Layout.uint64('discriminator'),
     BufferLayout.u8('isInitialized'),
     Layout.uint64('tokensUnlocked'),
-    Layout.uint64('tokensTotal'),
     Layout.uint64('tokensPerPeriod'),
+    Layout.uint64('tokensTotal'),
     Layout.uint64('periodLength'),
     Layout.uint64('startTime'),
     Layout.uint64('currentTime'),
@@ -112,6 +112,14 @@ export class TokenFarming {
     );
   }
 
+  static async getMinBalanceRentForExemptFarmingTicket(
+    connection: Connection,
+  ): Promise<number> {
+    return await connection.getMinimumBalanceForRentExemption(
+      FarmingTicketLayout.span,
+    );
+  }
+
   static createInitFarmingInstruction(
     tokenSwapAccount: PublicKey,
     farmingStateAccount: PublicKey,    
@@ -123,7 +131,6 @@ export class TokenFarming {
     swapAuthority: PublicKey,
     clock: PublicKey,
     tokenProgramId: PublicKey,
-
     swapProgramId: PublicKey,
     tokenAmount: number,    
     tokensPerPeriod: number,  
@@ -143,15 +150,15 @@ export class TokenFarming {
     ];
     const commandDataLayout = BufferLayout.struct([
       BufferLayout.u8('instruction'),
-      BufferLayout.uint64('tokenAmount'),
-      BufferLayout.uint64('tokensPerPeriod'),
-      BufferLayout.uint64('periodLength'),      
+      BufferLayout.nu64('tokenAmount'),
+      BufferLayout.nu64('tokensPerPeriod'),
+      BufferLayout.nu64('periodLength'),      
     ]);
     let data = Buffer.alloc(25);
     {
       const encodeLength = commandDataLayout.encode(
         {
-          instruction: 9, // InitializeSwap instruction
+          instruction: 9, // InitializeFarming instruction
           tokenAmount,
           tokensPerPeriod,
           periodLength
@@ -169,6 +176,9 @@ export class TokenFarming {
 
   static async loadTokenFarmingState(
     connection: Connection,
+    tokenFreezeAccountPubkey: PublicKey,
+    swapAuthority: PublicKey,
+    feeAccountPubkey: PublicKey,
     address: PublicKey,
     programId: PublicKey,
     tokenProgramId: PublicKey,
@@ -179,18 +189,13 @@ export class TokenFarming {
     if (!tokenFarmingData.isInitialized) {
       throw new Error(`Invalid token farming state`);
     }
-
-    const [authority] = await PublicKey.findProgramAddress(
-      [address.toBuffer()],
-      programId,
-    );
     
-    const swapAccount = new PublicKey(tokenFarmingData.attachedSwapAccount);
-    const tokenFreezeAccount = new PublicKey(tokenFarmingData.feeAccount);
-    const farmingTokenAccount = new PublicKey(tokenFarmingData.tokenAccountA);
-    const feeAccountPubkey = new PublicKey(tokenFarmingData.tokenAccountB);
-    const swapAuthority = new PublicKey(tokenFarmingData.mintA);
+    const swapAccount = new PublicKey(tokenFarmingData.attachedSwapAccount);    
+    const farmingTokenAccount = new PublicKey(tokenFarmingData.farmingTokenAccount);  
    
+    console.log("unlocked " + Numberu64.fromBuffer(tokenFarmingData.tokensUnlocked).toString());
+    console.log("total " + Numberu64.fromBuffer(tokenFarmingData.tokensTotal).toString());
+    console.log("tokens per period " + Numberu64.fromBuffer(tokenFarmingData.tokensPerPeriod).toString());
 
     const tokenAmount = Numberu64.fromBuffer(
       tokenFarmingData.tokensTotal,
@@ -206,7 +211,7 @@ export class TokenFarming {
       connection,
       swapAccount,
       address,
-      tokenFreezeAccount,
+      tokenFreezeAccountPubkey,
       farmingTokenAccount,
       feeAccountPubkey,
       swapAuthority,
@@ -234,7 +239,6 @@ export class TokenFarming {
     swapAuthority: PublicKey,
     userFarmingTokenAccount: PublicKey,    
     userTransferAuthority: PublicKey,
-    feeAccount: PublicKey,
     clock: PublicKey,
     tokenProgramId: PublicKey,
     swapProgramId: PublicKey,
@@ -269,7 +273,7 @@ export class TokenFarming {
       farmingTokenAccount,
       userFarmingTokenAccount,
       userTransferAuthority,
-      feeAccount,
+      feeAccountPubkey,
       authority.publicKey,
       swapAuthority,
       clock,
@@ -387,6 +391,7 @@ export class TokenFarming {
       ),
       this.payer,
       userTransferAuthority,
+      userWalletAuthority
     );
   }
 
@@ -420,9 +425,9 @@ export class TokenFarming {
     const keys = [
       {pubkey: tokenSwap, isSigner: false, isWritable: false},
       {pubkey: farmingState, isSigner: false, isWritable: false},
-      {pubkey: farmingTicketAccount, isSigner: true, isWritable: true},
-      {pubkey: swapTokenFreezeAccount, isSigner: false, isWritable: false},
-      {pubkey: userPoolTokenAccount, isSigner: false, isWritable: false},
+      {pubkey: farmingTicketAccount, isSigner: false, isWritable: true},
+      {pubkey: swapTokenFreezeAccount, isSigner: false, isWritable: true},
+      {pubkey: userPoolTokenAccount, isSigner: false, isWritable: true},
       {pubkey: userAuthority, isSigner: true, isWritable: false},
       {pubkey: userPubkey, isSigner: true, isWritable: false},
       {pubkey: tokenProgramId, isSigner: false, isWritable: false},
@@ -452,8 +457,7 @@ export class TokenFarming {
           this.tokenSwapAccount,         
           this.farmingStateAccount,
           farmingTicketAccount,
-          this.tokenFreezeAccount,
-          this.farmingTokenAccount,
+          this.tokenFreezeAccount,          
           this.swapAuthority,
           userPoolTokenAccount,
           userWallet.publicKey,
@@ -471,8 +475,7 @@ export class TokenFarming {
     tokenSwap: PublicKey,
     farmingState: PublicKey,
     farmingTicket: PublicKey,
-    tokenFreezeAccount: PublicKey,
-    swapFarmingTokenAccount: PublicKey,
+    tokenFreezeAccount: PublicKey,    
     swapAuthority: PublicKey,
     userPoolTokenAccount: PublicKey,
     userPubkey: PublicKey,
@@ -497,10 +500,9 @@ export class TokenFarming {
       {pubkey: farmingState, isSigner: false, isWritable: false},
       {pubkey: farmingTicket, isSigner: false, isWritable: true},
       {pubkey: tokenFreezeAccount, isSigner: false, isWritable: true},
-      {pubkey: swapFarmingTokenAccount, isSigner: false, isWritable: true},
       {pubkey: swapAuthority, isSigner: false, isWritable: false},
       {pubkey: userPoolTokenAccount, isSigner: false, isWritable: true},      
-      {pubkey: userPubkey, isSigner: false, isWritable: false},
+      {pubkey: userPubkey, isSigner: true, isWritable: false},
       {pubkey: clock, isSigner: false, isWritable: false},
       {pubkey: tokenProgramId, isSigner: false, isWritable: false},
     ];

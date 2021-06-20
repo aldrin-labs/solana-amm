@@ -18,7 +18,7 @@ import {loadAccount} from './util/account';
 export { TokenFarmingLayout } from './token-farming'
 
 export const TOKEN_SWAP_PROGRAM_ID: PublicKey = new PublicKey(
-  'zbYGvYSANmoNN8rSLcvVmKcuzEASyjfSENtnKNbu9cW',
+  '4RJHQdzQHcsVhbN97jtPDb6nPZxM9ebpqzrUBKSkk4vP',
 );
 
 /**
@@ -64,6 +64,7 @@ export const TokenSwapLayout = BufferLayout.struct([
   Layout.publicKey('tokenAccountA'),
   Layout.publicKey('tokenAccountB'),
   Layout.publicKey('tokenPool'),
+  Layout.publicKey('tokenFreezeAccount'),
   Layout.publicKey('mintA'),
   Layout.publicKey('mintB'),
   Layout.publicKey('feeAccount'),
@@ -77,6 +78,7 @@ export const TokenSwapLayout = BufferLayout.struct([
   Layout.uint64('hostFeeDenominator'),
   BufferLayout.u8('curveType'),
   BufferLayout.blob(32, 'curveParameters'),
+  Layout.publicKey('farmingState'),
 ]);
 
 export const CurveType = Object.freeze({
@@ -182,8 +184,10 @@ export class TokenSwap {
     tokenAccountA: PublicKey,
     tokenAccountB: PublicKey,
     tokenPool: PublicKey,
+    tokenFreezeAccount: PublicKey,
     feeAccount: PublicKey,
     tokenAccountPool: PublicKey,
+    farmingState: PublicKey,
     tokenProgramId: PublicKey,
     swapProgramId: PublicKey,
     nonce: number,
@@ -204,8 +208,10 @@ export class TokenSwap {
       {pubkey: tokenAccountB, isSigner: false, isWritable: false},
       {pubkey: tokenPool, isSigner: false, isWritable: true},
       {pubkey: feeAccount, isSigner: false, isWritable: false},
-      {pubkey: tokenAccountPool, isSigner: false, isWritable: true},
+      {pubkey: tokenAccountPool, isSigner: false, isWritable: true},     
       {pubkey: tokenProgramId, isSigner: false, isWritable: false},
+      {pubkey: farmingState, isSigner: false, isWritable: true},
+      {pubkey: tokenFreezeAccount, isSigner: false, isWritable: false},
     ];
     const commandDataLayout = BufferLayout.struct([
       BufferLayout.u8('instruction'),
@@ -360,7 +366,6 @@ export class TokenSwap {
     feeAccount: PublicKey,
     tokenAccountPool: PublicKey,
     tokenFreezeAccount: PublicKey,
-    farmingState: PublicKey,
     swapProgramId: PublicKey,
     tokenProgramId: PublicKey,
     nonce: number,
@@ -373,6 +378,7 @@ export class TokenSwap {
     hostFeeNumerator: number,
     hostFeeDenominator: number,
     curveType: number,
+    farmingState: PublicKey,
   ): Promise<TokenSwap> {
     let transaction;
     const tokenSwap = new TokenSwap(
@@ -422,8 +428,10 @@ export class TokenSwap {
       tokenAccountA,
       tokenAccountB,
       poolToken,
+      tokenFreezeAccount,
       feeAccount,
       tokenAccountPool,
+      farmingState,
       tokenProgramId,
       swapProgramId,
       nonce,

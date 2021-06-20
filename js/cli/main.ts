@@ -1,11 +1,15 @@
+import { sleep } from '../src/util/sleep';
 import {
   createAccountAndSwapAtomic,
   createTokenSwap,
   swap,
   depositAllTokenTypes,
   withdrawAllTokenTypes,
-  depositSingleTokenTypeExactAmountIn,
-  withdrawSingleTokenTypeExactAmountOut,
+  initializeTokenFarming,  
+  startFarming,
+  takeFarmingSnapshot,
+  endFarming,
+  withdrawFarmed,
 } from './token-swap-test';
 
 async function main() {
@@ -20,10 +24,17 @@ async function main() {
   await swap();
   console.log('Run test: create account, approve, swap all at once');
   await createAccountAndSwapAtomic();
-  console.log('Run test: deposit one exact amount in');
-  await depositSingleTokenTypeExactAmountIn();
-  console.log('Run test: withrdaw one exact amount out');
-  await withdrawSingleTokenTypeExactAmountOut();
+  console.log('Run test: initialize farming');
+  await initializeTokenFarming();
+  console.log('Run test: start farming');
+  await startFarming();
+  await sleep(10000);
+  console.log('Run test: take farming snapshot');
+  await takeFarmingSnapshot();
+  console.log('Run test: end farming');
+  await endFarming();
+  console.log('Run test: withdraw farmed');
+  await withdrawFarmed();
   console.log('Success\n');
 }
 

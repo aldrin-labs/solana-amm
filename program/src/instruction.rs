@@ -247,12 +247,11 @@ pub enum SwapInstruction {
     ///   1. `[]` Farming state
     ///   2. `[writable]` Farming ticket
     ///   3. `[writable]` Swap's LP token account ot freeze tokens for farming
-    ///   4. `[writable]` state's farming token account
-    ///   5. `[]` swap's authority
-    ///   6. `[writable]` user's LP token account
-    ///   8. `[signer]` user's authority from farming ticket
-    ///   9. '[]` Clock sysvar
-    ///   10. '[]` Token program id
+    ///   4. `[]` swap's authority
+    ///   5. `[writable]` user's LP token account
+    ///   6. `[signer]` user's authority from farming ticket
+    ///   7. '[]` Clock sysvar
+    ///   8. '[]` Token program id
     EndFarming,
 
     /// Initialize token farming on a pool
