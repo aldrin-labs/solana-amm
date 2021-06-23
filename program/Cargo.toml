@@ -1,9 +1,9 @@
 [package]
-name = "spl-token-swap"
-version = "2.1.0"
-description = "Solana Program Library Token Swap"
-authors = ["Solana Maintainers <maintainers@solana.foundation>"]
-repository = "https://github.com/solana-labs/solana-program-library"
+name = "ccai-token-swap"
+version = "0.1.0"
+description = "CCAI Token Swap forked from Solana Program Library Token Swap"
+authors = ["CCAI", "Solana Maintainers <maintainers@solana.foundation>"]
+repository = ""
 license = "Apache-2.0"
 edition = "2018"
 

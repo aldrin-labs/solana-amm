@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use num_traits::FromPrimitive;
 use solana_program::{
     account_info::{AccountInfo, next_account_info},
-    clock::Clock,
+    clock::{Clock, UnixTimestamp},
     decode_error::DecodeError,
     entrypoint::ProgramResult,
     msg,
@@ -224,6 +224,7 @@ impl Processor {
         farming_token_account: Option<&AccountInfo>,
         farming_ticket: Option<&FarmingTicket>,
         farming_ticket_info: Option<&AccountInfo>,
+        user_authority_info: Option<&AccountInfo>,
         authority_info: Option<&AccountInfo>,
     ) -> ProgramResult {
         if swap_account_info.owner != program_id || farming_state_info.owner != program_id {
@@ -248,6 +249,7 @@ impl Processor {
                 return Err(SwapError::IncorrectTokenProgramId.into());
             }
         }
+
         if let Some(farming_ticket_info) = farming_ticket_info {
             if let Some(farming_ticket) = farming_ticket {
                 if farming_ticket.farming_state != *farming_state_info.key {
@@ -260,6 +262,17 @@ impl Processor {
                 return Err(ProgramError::NotEnoughAccountKeys);
             }
         }
+
+        if let Some(farming_ticket) = farming_ticket {
+            if let Some(user_authority_info) = user_authority_info {
+                if farming_ticket.token_authority != *user_authority_info.key {
+                    return Err(ProgramError::MissingRequiredSignature);
+                }
+            } else {
+                return Err(ProgramError::NotEnoughAccountKeys);
+            }
+        }
+
         if let Some(authority_info) = authority_info {
             if *authority_info.key
                 != Self::authority_id(program_id, swap_account_info.key, token_swap.nonce())?
@@ -396,10 +409,12 @@ impl Processor {
             discriminator: u64::from_le_bytes(FARMING_STATE_DISCRIMINATOR),
             is_initialized: false,
             tokens_unlocked: 0,
+            tokens_total: 0,
             tokens_per_period: 0,
             period_length: 0,
             start_time: 0,
             current_time: 0,
+            attached_swap_account: swap_info.key.clone(),
             farming_token_account: solana_program::system_program::ID,
             farming_snapshots: Default::default(),
         };
@@ -1104,6 +1119,7 @@ impl Processor {
             None,
             None,
             None,
+            None,
         )?;
         if FarmingTicket::is_initialized(&farming_ticket_info.data.borrow()) {
             return Err(SwapError::AlreadyInUse.into());
@@ -1127,6 +1143,7 @@ impl Processor {
             is_initialized: true,
             tokens_frozen: pool_token_amount,
             start_time: clock.unix_timestamp,
+            end_time: UnixTimestamp::MAX,
             token_authority: user_key.key.clone(),
             farming_state: farming_state_info.key.clone(),
         };
@@ -1174,48 +1191,20 @@ impl Processor {
             Some(farming_token_info),
             Some(&farming_ticket),
             Some(farming_ticket_info),
+            Some(user_transfer_authority_info),
             Some(swap_authority_info),
         )?;
         if !user_transfer_authority_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        Self::withdraw_farmed(
-            token_swap.as_ref(),
-            swap_info,
-            &farming_state,
-            &mut farming_ticket,
-            clock,
-            user_token_info,
-            farming_token_info,
-            swap_authority_info,
-            token_program_info,
-        )?;
-
-        FarmingTicket::pack(farming_ticket, &mut farming_ticket_info.data.borrow_mut())?;
-
-        Ok(())
-    }
-
-    fn withdraw_farmed<'info>(
-        token_swap: &dyn SwapState,
-        swap_info: &AccountInfo<'info>,
-        farming_state: &FarmingState,
-        farming_ticket: &mut FarmingTicket,
-        clock: &Clock,
-        user_token_info: &AccountInfo<'info>,
-        farming_token_info: &AccountInfo<'info>,
-        swap_authority_info: &AccountInfo<'info>,
-        token_program_info: &AccountInfo<'info>,
-    ) -> ProgramResult {
-        if farming_state.is_minimum_withdraw_period_passed(clock.unix_timestamp) {
+        if !farming_state.is_no_withdrawal_period_passed(clock.unix_timestamp) {
             return Err(FarmingError::MinimumWithdrawalTimeNotPassed.into());
         }
 
         let (tokens_to_withdraw, timestamp) = farming_state
             .calculate_withdraw_tokens(&farming_ticket)
             .ok_or(FarmingError::FarmingTokenCalculationError)?;
-
         if tokens_to_withdraw == 0 || timestamp == farming_ticket.start_time {
             return Err(FarmingError::NoTokensToWithdraw.into());
         }
@@ -1233,6 +1222,12 @@ impl Processor {
             tokens_to_withdraw,
         )?;
 
+        if farming_ticket.end_time != UnixTimestamp::MAX {
+            farming_ticket = FarmingTicket::default();
+        }
+
+        FarmingTicket::pack(farming_ticket, &mut farming_ticket_info.data.borrow_mut())?;
+
         Ok(())
     }
 
@@ -1245,11 +1240,9 @@ impl Processor {
         let swap_info = next_account_info(account_info_iter)?;
         let farming_info = next_account_info(account_info_iter)?;
         let farming_ticket_info = next_account_info(account_info_iter)?;
-        let farming_token_freeze_info = next_account_info(account_info_iter)?;
-        let farming_token_info = next_account_info(account_info_iter)?;
+        let pool_token_freeze_info = next_account_info(account_info_iter)?;
         let swap_authority_info = next_account_info(account_info_iter)?;
         let user_pool_token_info = next_account_info(account_info_iter)?;
-        let user_farming_token_info = next_account_info(account_info_iter)?;
         let user_transfer_authority_info = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
@@ -1266,6 +1259,7 @@ impl Processor {
         if !farming_ticket.is_initialized || !farming_state.is_initialized {
             return Err(ProgramError::UninitializedAccount.into());
         }
+
         Self::check_farming_accounts(
             program_id,
             token_swap.as_ref(),
@@ -1273,39 +1267,28 @@ impl Processor {
             &farming_state,
             farming_info,
             Some(token_program_info),
-            Some(farming_token_freeze_info),
-            Some(farming_token_info),
+            Some(pool_token_freeze_info),
+            None,
             Some(&farming_ticket),
             Some(farming_ticket_info),
+            Some(user_transfer_authority_info),
             Some(swap_authority_info),
         )?;
         if !user_transfer_authority_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        Self::withdraw_farmed(
-            token_swap.as_ref(),
-            swap_info,
-            &farming_state,
-            &mut farming_ticket,
-            clock,
-            user_farming_token_info,
-            farming_token_info,
-            swap_authority_info,
-            token_program_info,
-        )?;
-
         Self::token_transfer(
             swap_info.key,
             token_program_info.clone(),
-            farming_token_freeze_info.clone(),
+            pool_token_freeze_info.clone(),
             user_pool_token_info.clone(),
             swap_authority_info.clone(),
             token_swap.nonce(),
             farming_ticket.tokens_frozen,
         )?;
 
-        farming_ticket = Default::default();
+        farming_ticket.end_time = clock.unix_timestamp;
 
         FarmingTicket::pack(farming_ticket, &mut farming_ticket_info.data.borrow_mut())?;
 
@@ -1327,9 +1310,9 @@ impl Processor {
         let user_farming_token_info = next_account_info(account_info_iter)?;
         let user_transfer_authority_info = next_account_info(account_info_iter)?;
         let fee_account = next_account_info(account_info_iter)?;
+        let fee_authority = next_account_info(account_info_iter)?;
         let authority_info = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
-
         let token_program_info = next_account_info(account_info_iter)?;
 
         let clock = &Clock::from_account_info(clock_info)?;
@@ -1337,6 +1320,10 @@ impl Processor {
 
         let farming_token =
             Self::unpack_token_account(farming_token_info, &token_swap.token_program_id())?;
+
+        let fee_token =
+            Self::unpack_token_account(fee_account, &token_swap.token_program_id())?;
+
 
         if *clock_info.key != solana_program::sysvar::clock::ID {
             return Err(ProgramError::InvalidAccountData);
@@ -1346,8 +1333,13 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
-        if *fee_account.key != *token_swap.pool_fee_account() || !fee_account.is_signer {
+        if !fee_authority.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
+        }
+
+        if *fee_account.key != *token_swap.pool_fee_account() ||
+            fee_token.owner != *fee_authority.key {
+            return Err(ProgramError::InvalidAccountData);
         }
 
         if *authority_info.key != farming_token.owner {
@@ -1376,10 +1368,12 @@ impl Processor {
             discriminator: u64::from_le_bytes(FARMING_STATE_DISCRIMINATOR),
             is_initialized: true,
             tokens_unlocked: 0,
+            tokens_total: token_amount,
             tokens_per_period,
             period_length,
             start_time: clock.unix_timestamp,
             current_time: clock.unix_timestamp,
+            attached_swap_account: *swap_info.key,
             farming_token_account: *farming_token_info.key,
             farming_snapshots: Default::default(),
         };
@@ -1398,13 +1392,17 @@ impl Processor {
         let swap_info = next_account_info(account_info_iter)?;
         let farming_info = next_account_info(account_info_iter)?;
         let token_freeze_account_info = next_account_info(account_info_iter)?;
-        let authority_info = next_account_info(account_info_iter)?;
+        let fee_account = next_account_info(account_info_iter)?;
+        let fee_authority = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
 
         let clock = &Clock::from_account_info(clock_info)?;
         let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
         let farming_state = FarmingState::unpack(&farming_info.data.borrow())?;
         let token_freeze_account = spl_token::state::Account::unpack(&token_freeze_account_info.data.borrow())?;
+
+        let fee_token =
+            Self::unpack_token_account(fee_account, &token_swap.token_program_id())?;
 
         if *clock_info.key != solana_program::sysvar::clock::ID {
             return Err(ProgramError::InvalidAccountData);
@@ -1414,8 +1412,13 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
-        if *authority_info.key != *token_swap.pool_fee_account() || !authority_info.is_signer {
+        if !fee_authority.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
+        }
+
+        if *fee_account.key != *token_swap.pool_fee_account() ||
+            fee_token.owner != *fee_authority.key {
+            return Err(ProgramError::InvalidAccountData);
         }
 
         Self::check_farming_accounts(
@@ -1430,10 +1433,15 @@ impl Processor {
             None,
             None,
             None,
+            None,
         )?;
 
         if *token_swap.farming_state() != *farming_info.key {
             return Err(ProgramError::InvalidAccountData.into());
+        }
+
+        if token_freeze_account.amount == 0 {
+            return Err(FarmingError::CannotSnapshotNoTokensFrozen.into());
         }
 
         let mut farming_state = FarmingState::unpack_from_slice(&farming_info.data.borrow_mut())?;
@@ -1453,9 +1461,17 @@ impl Processor {
 
         let tokens_to_unlock = periods_passed * farming_state.tokens_per_period;
 
+
+        let last_tokens_unlocked = farming_state.tokens_unlocked;
         farming_state.tokens_unlocked = farming_state.tokens_unlocked
             .checked_add(tokens_to_unlock)
             .ok_or(FarmingError::FarmingTokenCalculationError)?;
+        if farming_state.tokens_unlocked > farming_state.tokens_total {
+            farming_state.tokens_unlocked = farming_state.tokens_total;
+        }
+        if last_tokens_unlocked == farming_state.tokens_unlocked {
+            return Err(FarmingError::CannotSnapshotNoTokensToUnlock.into());
+        }
 
         let index = farming_state.farming_snapshots.next_index as usize;
 
@@ -1463,12 +1479,12 @@ impl Processor {
             return Err(ProgramError::AccountDataTooSmall);
         }
 
-        farming_state.farming_snapshots.snapshots[index] = Snapshot {
+        farming_state.farming_snapshots.snapshots.push(Snapshot {
             is_initialized: true,
             tokens_frozen: token_freeze_account.amount,
             farming_tokens: farming_state.tokens_unlocked,
             time: clock.unix_timestamp,
-        };
+        });
         farming_state.farming_snapshots.next_index = (index + 1) as u64;
 
         FarmingState::pack(farming_state, &mut farming_info.data.borrow_mut())?;
@@ -2163,6 +2179,27 @@ mod tests {
             )
         }
 
+        pub fn deposit_all_user_token_types(
+            &mut self,
+            user_info: &mut UserFarmingInfo,
+            pool_token_amount: u64,
+            maximum_token_a_amount: u64,
+            maximum_token_b_amount: u64,
+        ) -> ProgramResult {
+            return self.deposit_all_token_types(
+                &user_info.user_key,
+                &user_info.token_a_key,
+                &mut user_info.token_a_account,
+                &user_info.token_b_key,
+                &mut user_info.token_b_account,
+                &user_info.pool_key,
+                &mut user_info.pool_account,
+                pool_token_amount,
+                maximum_token_a_amount,
+                maximum_token_b_amount,
+            );
+        }
+
         #[allow(clippy::too_many_arguments)]
         pub fn withdraw_all_token_types(
             &mut self,
@@ -2373,6 +2410,11 @@ mod tests {
             tokens_per_period: u64,
             period_length: u64,
         ) -> ProgramResult {
+            let fee_authority = spl_token::state::Account::unpack(
+                self.pool_fee_account.data.as_slice())
+                .expect("")
+                .owner;
+
             let user_transfer_authority_key = Pubkey::new_unique();
             // approve user transfer authority to take out pool tokens
             do_process_instruction(
@@ -2403,6 +2445,7 @@ mod tests {
                     &user_farming_token_key,
                     &user_transfer_authority_key,
                     &self.pool_fee_key,
+                    &fee_authority,
                     &self.authority_key,
                     &clock_key,
                     InitializeFarming {
@@ -2420,8 +2463,42 @@ mod tests {
                     &mut Account::default(),
                     &mut self.pool_fee_account,
                     &mut Account::default(),
+                    &mut Account::default(),
                     &mut clock_account,
                     &mut Account::default(),
+                ],
+            )
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub fn take_farming_snapshot(
+            &mut self,
+            clock_key: &Pubkey,
+            mut clock_account: &mut Account,
+        ) -> ProgramResult {
+            let fee_authority = spl_token::state::Account::unpack(
+                self.pool_fee_account.data.as_slice())
+                .expect("")
+                .owner;
+
+            do_process_instruction(
+                take_farming_snapshot(
+                    &SWAP_PROGRAM_ID,
+                    &self.swap_key,
+                    &self.farming_state_key,
+                    &self.token_freeze_key,
+                    &self.pool_fee_key,
+                    &fee_authority,
+                    &clock_key,
+                )
+                    .unwrap(),
+                vec![
+                    &mut self.swap_account,
+                    &mut self.farming_state_account,
+                    &mut self.token_freeze_account,
+                    &mut self.pool_fee_account,
+                    &mut Account::default(),
+                    &mut clock_account,
                 ],
             )
         }
@@ -2490,33 +2567,6 @@ mod tests {
         }
 
         #[allow(clippy::too_many_arguments)]
-        pub fn take_farming_snapshot(
-            &mut self,
-            clock_key: &Pubkey,
-            mut clock_account: &mut Account,
-        ) -> ProgramResult {
-            do_process_instruction(
-                take_farming_snapshot(
-                    &SWAP_PROGRAM_ID,
-                    &TOKEN_PROGRAM_ID,
-                    &self.swap_key,
-                    &self.farming_state_key,
-                    &self.token_freeze_key,
-                    &self.pool_fee_key,
-                    &clock_key,
-                )
-                    .unwrap(),
-                vec![
-                    &mut self.swap_account,
-                    &mut self.farming_state_account,
-                    &mut self.token_freeze_account,
-                    &mut self.pool_fee_account,
-                    &mut clock_account,
-                ],
-            )
-        }
-
-        #[allow(clippy::too_many_arguments)]
         pub fn withdraw_farmed(
             &mut self,
             user_farming_token_key: &Pubkey,
@@ -2562,10 +2612,6 @@ mod tests {
             &mut self,
             farming_ticket_key: &Pubkey,
             mut farming_ticket_account: &mut Account,
-            swap_farming_token_key: &Pubkey,
-            mut swap_farming_token_account: &mut Account,
-            user_farming_token_key: &Pubkey,
-            mut user_farming_token_account: &mut Account,
             user_pool_token_key: &Pubkey,
             mut user_pool_token_account: &mut Account,
             user_authority_key: &Pubkey,
@@ -2580,10 +2626,8 @@ mod tests {
                     &self.farming_state_key,
                     &farming_ticket_key,
                     &self.token_freeze_key,
-                    &swap_farming_token_key,
                     &self.authority_key,
                     &user_pool_token_key,
-                    &user_farming_token_key,
                     &user_authority_key,
                     &clock_key,
                 )
@@ -2593,10 +2637,8 @@ mod tests {
                     &mut self.farming_state_account,
                     &mut farming_ticket_account,
                     &mut self.token_freeze_account,
-                    &mut swap_farming_token_account,
                     &mut Account::default(),
                     &mut user_pool_token_account,
-                    &mut user_farming_token_account,
                     &mut Account::default(),
                     &mut clock_account,
                     &mut Account::default(),
@@ -2605,30 +2647,116 @@ mod tests {
         }
     }
 
-    struct FarmingAccountInfo {
-        pub farming_mint_key: Pubkey,
-        pub farming_mint_account: Account,
-        pub swap_farming_token_key: Pubkey,
-        pub swap_farming_token_account: Account,
+    struct UserFarmingInfo {
+        pub user_key: Pubkey,
         pub user_farming_token_key: Pubkey,
         pub user_farming_token_account: Account,
+        pub pool_key: Pubkey,
+        pub pool_account: Account,
+        pub token_a_key: Pubkey,
+        pub token_a_account: Account,
+        pub token_b_key: Pubkey,
+        pub token_b_account: Account,
+        pub farming_ticket_key: Pubkey,
+        pub farming_ticket_account: Account,
     }
 
-    impl FarmingAccountInfo {
+    impl UserFarmingInfo {
         pub fn new(
-            user_token_amount: u64,
             user_authority_key: Pubkey,
-            swap_authority_key: Pubkey,
+            farming_mint_key: Pubkey,
+            mut farming_mint_account: &mut Account,
+            pool_mint_key: Pubkey,
+            mut pool_mint_account: &mut Account,
+            token_a_mint_key: Pubkey,
+            mut token_a_mint_account: &mut Account,
+            token_b_mint_key: Pubkey,
+            mut token_b_mint_account: &mut Account,
+            token_a_amount: u64,
+            token_b_amount: u64,
         ) -> Self {
-            let (farming_mint_key, mut farming_mint_account) =
-                create_mint(&TOKEN_PROGRAM_ID, &user_authority_key, None);
+            let user_key = Pubkey::new_unique();
+
             let (user_farming_token_key, user_farming_token_account) = mint_token(
                 &TOKEN_PROGRAM_ID,
                 &farming_mint_key,
                 &mut farming_mint_account,
                 &user_authority_key,
                 &user_authority_key,
-                user_token_amount,
+                0,
+            );
+
+            let (pool_key, pool_account) = mint_token(
+                &TOKEN_PROGRAM_ID,
+                &pool_mint_key,
+                &mut pool_mint_account,
+                &user_authority_key,
+                &user_key,
+                0,
+            );
+
+            let (token_a_key, token_a_account) = mint_token(
+                &TOKEN_PROGRAM_ID,
+                &token_a_mint_key,
+                &mut token_a_mint_account,
+                &user_authority_key,
+                &user_key,
+                token_a_amount,
+            );
+
+            let (token_b_key, token_b_account) = mint_token(
+                &TOKEN_PROGRAM_ID,
+                &token_b_mint_key,
+                &mut token_b_mint_account,
+                &user_authority_key,
+                &user_key,
+                token_b_amount,
+            );
+
+            let farming_ticket_key = Pubkey::new_unique();
+            let farming_ticket_account = Account::new(0, FarmingTicket::LEN, &SWAP_PROGRAM_ID);
+
+            UserFarmingInfo {
+                user_key,
+                user_farming_token_key,
+                user_farming_token_account,
+                pool_key,
+                pool_account,
+                token_a_key,
+                token_a_account,
+                token_b_key,
+                token_b_account,
+                farming_ticket_key,
+                farming_ticket_account,
+            }
+        }
+    }
+
+
+    struct FarmingStateInfo {
+        pub farming_mint_key: Pubkey,
+        pub farming_mint_account: Account,
+        pub swap_farming_token_key: Pubkey,
+        pub swap_farming_token_account: Account,
+        pub owner_farming_token_key: Pubkey,
+        pub owner_farming_token_account: Account,
+    }
+
+    impl FarmingStateInfo {
+        pub fn new(
+            owner_token_amount: u64,
+            user_authority_key: Pubkey,
+            swap_authority_key: Pubkey,
+        ) -> Self {
+            let (farming_mint_key, mut farming_mint_account) =
+                create_mint(&TOKEN_PROGRAM_ID, &user_authority_key, None);
+            let (owner_farming_token_key, owner_farming_token_account) = mint_token(
+                &TOKEN_PROGRAM_ID,
+                &farming_mint_key,
+                &mut farming_mint_account,
+                &user_authority_key,
+                &user_authority_key,
+                owner_token_amount,
             );
 
             let (swap_farming_token_key, swap_farming_token_account) = mint_token(
@@ -2640,13 +2768,13 @@ mod tests {
                 0,
             );
 
-            FarmingAccountInfo {
+            FarmingStateInfo {
                 farming_mint_key,
                 farming_mint_account,
-                user_farming_token_key,
-                user_farming_token_account,
                 swap_farming_token_key,
                 swap_farming_token_account,
+                owner_farming_token_key,
+                owner_farming_token_account,
             }
         }
     }
@@ -2792,6 +2920,16 @@ mod tests {
         (mint_key, mint_account)
     }
 
+    fn get_clock_for_time(time: i64) -> Account {
+        let mut clock = Clock::default();
+        clock.unix_timestamp = time;
+        Account::new_data(
+            1000000000,
+            &clock,
+            &solana_program::system_program::ID,
+        ).expect("account creation failed")
+    }
+
     #[test]
     fn test_token_program_id_error() {
         test_syscall_stubs();
@@ -2829,8 +2967,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
         let fees = Fees {
@@ -3618,8 +3756,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -4230,8 +4368,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -4970,64 +5108,64 @@ mod tests {
             );
         }
 
-        // correct withdrawal from fee account
-        {
-            let (
-                token_a_key,
-                mut token_a_account,
-                token_b_key,
-                mut token_b_account,
-                _pool_key,
-                mut _pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, 0, 0, 0);
+        #[cfg(not(feature = "production"))]
+            {
+                let (
+                    token_a_key,
+                    mut token_a_account,
+                    token_b_key,
+                    mut token_b_account,
+                    _pool_key,
+                    mut _pool_account,
+                ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, 0, 0, 0);
 
-            let pool_fee_key = accounts.pool_fee_key;
-            let mut pool_fee_account = accounts.pool_fee_account.clone();
-            let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
-            let pool_fee_amount = fee_account.amount;
-            let fee_owner = fee_account.owner;
-            accounts
-                .withdraw_all_token_types(
-                    &fee_owner,
-                    &pool_fee_key,
-                    &mut pool_fee_account,
-                    &token_a_key,
-                    &mut token_a_account,
-                    &token_b_key,
-                    &mut token_b_account,
-                    pool_fee_amount,
-                    0,
-                    0,
-                ).unwrap();
+                let pool_fee_key = accounts.pool_fee_key;
+                let mut pool_fee_account = accounts.pool_fee_account.clone();
+                let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
+                let pool_fee_amount = fee_account.amount;
+                let fee_owner = fee_account.owner;
+                accounts
+                    .withdraw_all_token_types(
+                        &fee_owner,
+                        &pool_fee_key,
+                        &mut pool_fee_account,
+                        &token_a_key,
+                        &mut token_a_account,
+                        &token_b_key,
+                        &mut token_b_account,
+                        pool_fee_amount,
+                        0,
+                        0,
+                    ).unwrap();
 
-            let swap_token_a =
-                spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
-            let swap_token_b =
-                spl_token::state::Account::unpack(&accounts.token_b_account.data).unwrap();
-            let pool_mint =
-                spl_token::state::Mint::unpack(&accounts.pool_mint_account.data).unwrap();
-            let results = accounts
-                .swap_curve
-                .calculator
-                .pool_tokens_to_trading_tokens(
-                    pool_fee_amount.try_into().unwrap(),
-                    pool_mint.supply.try_into().unwrap(),
-                    swap_token_a.amount.try_into().unwrap(),
-                    swap_token_b.amount.try_into().unwrap(),
-                    RoundDirection::Floor,
-                )
-                .unwrap();
-            let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
-            assert_eq!(
-                token_a.amount,
-                TryInto::<u64>::try_into(results.token_a_amount).unwrap()
-            );
-            let token_b = spl_token::state::Account::unpack(&token_b_account.data).unwrap();
-            assert_eq!(
-                token_b.amount,
-                TryInto::<u64>::try_into(results.token_b_amount).unwrap()
-            );
-        }
+                let swap_token_a =
+                    spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
+                let swap_token_b =
+                    spl_token::state::Account::unpack(&accounts.token_b_account.data).unwrap();
+                let pool_mint =
+                    spl_token::state::Mint::unpack(&accounts.pool_mint_account.data).unwrap();
+                let results = accounts
+                    .swap_curve
+                    .calculator
+                    .pool_tokens_to_trading_tokens(
+                        pool_fee_amount.try_into().unwrap(),
+                        pool_mint.supply.try_into().unwrap(),
+                        swap_token_a.amount.try_into().unwrap(),
+                        swap_token_b.amount.try_into().unwrap(),
+                        RoundDirection::Floor,
+                    )
+                    .unwrap();
+                let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
+                assert_eq!(
+                    token_a.amount,
+                    TryInto::<u64>::try_into(results.token_a_amount).unwrap()
+                );
+                let token_b = spl_token::state::Account::unpack(&token_b_account.data).unwrap();
+                assert_eq!(
+                    token_b.amount,
+                    TryInto::<u64>::try_into(results.token_b_amount).unwrap()
+                );
+            }
     }
 
     #[test]
@@ -5038,8 +5176,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -5550,8 +5688,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -6153,43 +6291,44 @@ mod tests {
         }
 
         // correct withdrawal from fee account
-        {
-            let (
-                token_a_key,
-                mut token_a_account,
-                _token_b_key,
-                _token_b_account,
-                _pool_key,
-                _pool_account,
-            ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, initial_a, initial_b, 0);
+        #[cfg(not(feature = "production"))]
+            {
+                let (
+                    token_a_key,
+                    mut token_a_account,
+                    _token_b_key,
+                    _token_b_account,
+                    _pool_key,
+                    _pool_account,
+                ) = accounts.setup_token_accounts(&user_key, &withdrawer_key, initial_a, initial_b, 0);
 
-            let fee_a_amount = 2;
-            let pool_fee_key = accounts.pool_fee_key;
-            let mut pool_fee_account = accounts.pool_fee_account.clone();
-            let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
-            let pool_fee_amount = fee_account.amount;
-            let swap_token_a =
-                spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
+                let fee_a_amount = 2;
+                let pool_fee_key = accounts.pool_fee_key;
+                let mut pool_fee_account = accounts.pool_fee_account.clone();
+                let fee_account = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap();
+                let pool_fee_amount = fee_account.amount;
+                let swap_token_a =
+                    spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
 
-            let fee_account_owner = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap().owner;
-            let token_a_amount = swap_token_a.amount;
-            accounts
-                .withdraw_single_token_type_exact_amount_out(
-                    &fee_account_owner,
-                    &pool_fee_key,
-                    &mut pool_fee_account,
-                    &token_a_key,
-                    &mut token_a_account,
-                    fee_a_amount,
-                    pool_fee_amount,
-                ).unwrap();
-            let swap_token_a =
-                spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
+                let fee_account_owner = spl_token::state::Account::unpack(&pool_fee_account.data).unwrap().owner;
+                let token_a_amount = swap_token_a.amount;
+                accounts
+                    .withdraw_single_token_type_exact_amount_out(
+                        &fee_account_owner,
+                        &pool_fee_key,
+                        &mut pool_fee_account,
+                        &token_a_key,
+                        &mut token_a_account,
+                        fee_a_amount,
+                        pool_fee_amount,
+                    ).unwrap();
+                let swap_token_a =
+                    spl_token::state::Account::unpack(&accounts.token_a_account.data).unwrap();
 
-            assert_eq!(swap_token_a.amount, token_a_amount - fee_a_amount);
-            let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
-            assert_eq!(token_a.amount, initial_a + fee_a_amount);
-        }
+                assert_eq!(swap_token_a.amount, token_a_amount - fee_a_amount);
+                let token_a = spl_token::state::Account::unpack(&token_a_account.data).unwrap();
+                assert_eq!(token_a.amount, initial_a + fee_a_amount);
+            }
     }
 
     fn check_valid_swap_curve(
@@ -6381,8 +6520,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
         let fees = Fees {
@@ -6414,8 +6553,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
         let fees = Fees {
@@ -6452,8 +6591,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -6604,8 +6743,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
         let fees = Fees {
@@ -7187,8 +7326,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -7234,7 +7373,7 @@ mod tests {
 
         accounts.initialize_swap().unwrap();
 
-        let mut state = FarmingAccountInfo::new(
+        let mut state = FarmingStateInfo::new(
             100000,
             user_key,
             accounts.authority_key);
@@ -7243,8 +7382,8 @@ mod tests {
             &user_key,
             &clock_key,
             &mut clock_account,
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
+            &state.owner_farming_token_key,
+            &mut state.owner_farming_token_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
             token_amount,
@@ -7260,14 +7399,46 @@ mod tests {
         assert_eq!(farming_state.period_length, period_length);
     }
 
+    fn create_user_and_deposit(
+        accounts: &mut SwapAccountInfo,
+        state: &mut FarmingStateInfo,
+        user_key: &Pubkey,
+        token_a_amount: u64,
+        token_b_amount: u64,
+        pool_token_amount: u64,
+    ) -> UserFarmingInfo {
+        let mut user_info = UserFarmingInfo::new(
+            *user_key,
+            state.farming_mint_key,
+            &mut state.farming_mint_account,
+            accounts.pool_mint_key,
+            &mut accounts.pool_mint_account,
+            accounts.token_a_mint_key,
+            &mut accounts.token_a_mint_account,
+            accounts.token_b_mint_key,
+            &mut accounts.token_b_mint_account,
+            token_a_amount,
+            token_b_amount,
+        );
+
+        accounts.deposit_all_user_token_types(
+            &mut user_info,
+            pool_token_amount,
+            token_a_amount,
+            token_b_amount,
+        ).unwrap();
+
+        user_info
+    }
+
     #[test]
     fn test_start_farming() {
         let trade_fee_numerator = 25;
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -7296,6 +7467,10 @@ mod tests {
         let period_length = 1;
         let tokens_to_freeze = 100_000;
 
+        let pool_amount = INITIAL_SWAP_POOL_AMOUNT / 10;
+        let deposit_a = token_a_amount / 10;
+        let deposit_b = token_b_amount / 10;
+
         let clock_key = Pubkey::from_str("SysvarC1ock11111111111111111111111111111111")
             .expect("Clock pubkey creation failed");
         let mut clock = Clock::default();
@@ -7313,23 +7488,34 @@ mod tests {
 
         accounts.initialize_swap().unwrap();
 
-        let pool_key = accounts.pool_token_key;
-        let mut pool_account = accounts.pool_token_account.clone();
-
-        let mut state = FarmingAccountInfo::new(
-            100000,
+        let mut state = FarmingStateInfo::new(
+            token_amount,
             user_key,
             accounts.authority_key);
 
-        let farming_ticket_key = Pubkey::new_unique();
-        let mut farming_ticket_account = Account::new(0, FarmingTicket::LEN, &SWAP_PROGRAM_ID);
+        let mut user_one = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
+        let mut user_two = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
 
         accounts.init_farming(
             &user_key,
             &clock_key,
             &mut clock_account,
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
+            &state.owner_farming_token_key,
+            &mut state.owner_farming_token_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
             token_amount,
@@ -7338,11 +7524,22 @@ mod tests {
         ).unwrap();
 
         accounts.start_farming(
-            &user_key,
-            &pool_key,
-            &mut pool_account,
-            &farming_ticket_key,
-            &mut farming_ticket_account,
+            &user_one.user_key,
+            &user_one.pool_key,
+            &mut user_one.pool_account,
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
+            &clock_key,
+            &mut clock_account,
+            tokens_to_freeze,
+        ).unwrap();
+
+        accounts.start_farming(
+            &user_two.user_key,
+            &user_two.pool_key,
+            &mut user_two.pool_account,
+            &user_two.farming_ticket_key,
+            &mut user_two.farming_ticket_account,
             &clock_key,
             &mut clock_account,
             tokens_to_freeze,
@@ -7350,11 +7547,11 @@ mod tests {
 
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount, tokens_to_freeze);
-        let farming_ticket = FarmingTicket::unpack(&farming_ticket_account.data).unwrap();
+        assert_eq!(swap_token_freeze.amount, tokens_to_freeze * 2);
+        let farming_ticket = FarmingTicket::unpack(&user_one.farming_ticket_account.data).unwrap();
         assert_eq!(farming_ticket.tokens_frozen, tokens_to_freeze);
         assert_eq!(farming_ticket.start_time, clock.unix_timestamp);
-        assert_eq!(farming_ticket.token_authority, user_key);
+        assert_eq!(farming_ticket.token_authority, user_one.user_key);
         assert_eq!(farming_ticket.farming_state, accounts.farming_state_key);
     }
 
@@ -7364,8 +7561,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -7392,43 +7589,54 @@ mod tests {
         let token_amount = 100_000;
         let tokens_per_period = 100;
         let period_length = 1;
-        let tokens_to_freeze = 100_000;
+        let tokens_to_freeze_one = 100_000;
+        let tokens_to_freeze_two = 1_000_000;
         let time_period_one = 100;
+
+        let pool_amount = INITIAL_SWAP_POOL_AMOUNT / 10;
+        let deposit_a = token_a_amount / 10;
+        let deposit_b = token_b_amount / 10;
 
         let clock_key = Pubkey::from_str("SysvarC1ock11111111111111111111111111111111")
             .expect("Clock pubkey creation failed");
-        let mut clock = Clock::default();
-        clock.unix_timestamp = SystemTime::now()
+        let mut current_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH).expect("wrong current system time")
             .as_secs() as i64;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        let mut clock_account = get_clock_for_time(current_timestamp);
 
         let mut accounts =
             SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
 
         accounts.initialize_swap().unwrap();
 
-        let pool_key = accounts.pool_token_key;
-        let mut pool_account = accounts.pool_token_account.clone();
-
-        let mut state = FarmingAccountInfo::new(
+        let mut state = FarmingStateInfo::new(
             100000,
             user_key,
             accounts.authority_key);
 
-        let farming_ticket_key = Pubkey::new_unique();
-        let mut farming_ticket_account = Account::new(0, FarmingTicket::LEN, &SWAP_PROGRAM_ID);
+        let mut user_one = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
+        let mut user_two = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
 
         accounts.init_farming(
             &user_key,
             &clock_key,
             &mut clock_account,
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
+            &state.owner_farming_token_key,
+            &mut state.owner_farming_token_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
             token_amount,
@@ -7437,22 +7645,29 @@ mod tests {
         ).unwrap();
 
         accounts.start_farming(
-            &user_key,
-            &pool_key,
-            &mut pool_account,
-            &farming_ticket_key,
-            &mut farming_ticket_account,
+            &user_one.user_key,
+            &user_one.pool_key,
+            &mut user_one.pool_account,
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
             &clock_key,
             &mut clock_account,
-            tokens_to_freeze,
+            tokens_to_freeze_one,
         ).unwrap();
 
-        clock.unix_timestamp += time_period_one;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        accounts.start_farming(
+            &user_two.user_key,
+            &user_two.pool_key,
+            &mut user_two.pool_account,
+            &user_two.farming_ticket_key,
+            &mut user_two.farming_ticket_account,
+            &clock_key,
+            &mut clock_account,
+            tokens_to_freeze_two,
+        ).unwrap();
+
+        current_timestamp += time_period_one;
+        clock_account = get_clock_for_time(current_timestamp);
 
         accounts.take_farming_snapshot(
             &clock_key,
@@ -7461,16 +7676,26 @@ mod tests {
 
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount, tokens_to_freeze);
+        assert_eq!(swap_token_freeze.amount, tokens_to_freeze_one + tokens_to_freeze_two);
         let farming_state = FarmingState::unpack(&accounts.farming_state_account.data).unwrap();
         assert_eq!(farming_state.farming_snapshots.next_index, 1);
         let last_snapshot = farming_state
             .farming_snapshots
             .snapshots.as_slice()[0];
-        assert_eq!(last_snapshot.tokens_frozen, tokens_to_freeze);
+        assert_eq!(last_snapshot.tokens_frozen, tokens_to_freeze_one + tokens_to_freeze_two);
         assert_eq!(last_snapshot.farming_tokens,
                    tokens_per_period * time_period_one as u64);
-        assert_eq!(last_snapshot.time, clock.unix_timestamp);
+        assert_eq!(last_snapshot.time, current_timestamp);
+    }
+
+    fn check_diff_within_error_range(
+        expected_value: u64,
+        given_value: u64,
+        percentage_numerator: u128,
+        percentage_denominator: u128,
+    ) -> bool {
+        let diff = i64::abs(expected_value as i64 - given_value as i64) as u128;
+        diff <= (expected_value as u128 * percentage_numerator) / percentage_denominator
     }
 
     #[test]
@@ -7479,8 +7704,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -7504,46 +7729,63 @@ mod tests {
         };
         let user_key = Pubkey::new_unique();
 
-        let token_amount = 100_000;
+        let token_amount = 100_000_000;
         let tokens_per_period = 100;
-        let period_length = 1;
-        let tokens_to_freeze = 100_000;
-        let time_period_one = 100;
+        let period_length: u64 = 60 * 60 * 24;
+        let tokens_to_freeze_one = 100_000;
+        let tokens_to_freeze_two = 1_000_000;
+
+        let pool_amount = INITIAL_SWAP_POOL_AMOUNT / 10;
+        let deposit_a = token_a_amount / 10;
+        let deposit_b = token_b_amount / 10;
+        let time_period_one = period_length as i64;
+        let period_one_snapshots = 15;
+        let time_period_two = (period_length * 30) as i64;
+        let period_two_snapshots = 3;
+        let time_period_three = crate::yield_farming::farming_state::NO_WITHDRAWAL_TIME;
+        let time_period_four = (period_length * 25) as i64;
 
         let clock_key = Pubkey::from_str("SysvarC1ock11111111111111111111111111111111")
             .expect("Clock pubkey creation failed");
-        let mut clock = Clock::default();
-        clock.unix_timestamp = SystemTime::now()
+
+        let mut current_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH).expect("wrong current system time")
             .as_secs() as i64;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        let mut clock_account = get_clock_for_time(current_timestamp);
 
         let mut accounts =
             SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
 
         accounts.initialize_swap().unwrap();
 
-        let pool_key = accounts.pool_token_key;
-        let mut pool_account = accounts.pool_token_account.clone();
-
-        let mut state = FarmingAccountInfo::new(
-            100000,
+        let mut state = FarmingStateInfo::new(
+            token_amount,
             user_key,
             accounts.authority_key);
 
-        let farming_ticket_key = Pubkey::new_unique();
-        let mut farming_ticket_account = Account::new(0, FarmingTicket::LEN, &SWAP_PROGRAM_ID);
+        let mut user_one = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
+        let mut user_two = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
 
         accounts.init_farming(
             &user_key,
             &clock_key,
             &mut clock_account,
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
+            &state.owner_farming_token_key,
+            &mut state.owner_farming_token_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
             token_amount,
@@ -7552,52 +7794,159 @@ mod tests {
         ).unwrap();
 
         accounts.start_farming(
-            &user_key,
-            &pool_key,
-            &mut pool_account,
-            &farming_ticket_key,
-            &mut farming_ticket_account,
+            &user_one.user_key,
+            &user_one.pool_key,
+            &mut user_one.pool_account,
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
             &clock_key,
             &mut clock_account,
-            tokens_to_freeze,
+            tokens_to_freeze_one,
         ).unwrap();
 
-        clock.unix_timestamp += time_period_one;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        accounts.start_farming(
+            &user_two.user_key,
+            &user_two.pool_key,
+            &mut user_two.pool_account,
+            &user_two.farming_ticket_key,
+            &mut user_two.farming_ticket_account,
+            &clock_key,
+            &mut clock_account,
+            tokens_to_freeze_two,
+        ).unwrap();
 
+        let mut i = 0;
+        while i < period_one_snapshots {
+            current_timestamp += time_period_one;
+            clock_account = get_clock_for_time(current_timestamp);
+
+            accounts.take_farming_snapshot(
+                &clock_key,
+                &mut clock_account,
+            ).unwrap();
+            i += 1;
+        }
+        assert_eq!(Err(FarmingError::MinimumWithdrawalTimeNotPassed.into()),
+                   accounts.withdraw_farmed(
+                       &user_one.user_farming_token_key,
+                       &mut user_one.user_farming_token_account,
+                       &user_one.farming_ticket_key,
+                       &mut user_one.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_one.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   )
+        );
+
+        let mut i = 0;
+        while i < period_two_snapshots {
+            current_timestamp += time_period_two;
+            clock_account = get_clock_for_time(current_timestamp);
+
+            accounts.take_farming_snapshot(
+                &clock_key,
+                &mut clock_account,
+            ).unwrap();
+            i += 1;
+        }
+
+        assert_eq!(Err(FarmingError::MinimumWithdrawalTimeNotPassed.into()),
+                   accounts.withdraw_farmed(
+                       &user_two.user_farming_token_key,
+                       &mut user_two.user_farming_token_account,
+                       &user_two.farming_ticket_key,
+                       &mut user_two.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_two.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   ));
+
+        current_timestamp += time_period_three;
+        clock_account = get_clock_for_time(current_timestamp);
+        let user_one_withdrawal_timestamp = current_timestamp;
+
+        accounts.take_farming_snapshot(
+            &clock_key,
+            &mut clock_account,
+        ).unwrap();
+        accounts.withdraw_farmed(
+            &user_one.user_farming_token_key,
+            &mut user_one.user_farming_token_account,
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
+            &state.swap_farming_token_key,
+            &mut state.swap_farming_token_account,
+            &user_one.user_key,
+            &clock_key,
+            &mut clock_account,
+        ).unwrap();
+
+        current_timestamp += time_period_four;
+        clock_account = get_clock_for_time(current_timestamp);
         accounts.take_farming_snapshot(
             &clock_key,
             &mut clock_account,
         ).unwrap();
 
         accounts.withdraw_farmed(
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
-            &farming_ticket_key,
-            &mut farming_ticket_account,
+            &user_two.user_farming_token_key,
+            &mut user_two.user_farming_token_account,
+            &user_two.farming_ticket_key,
+            &mut user_two.farming_ticket_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
-            &user_key,
+            &user_two.user_key,
             &clock_key,
             &mut clock_account,
         ).unwrap();
 
-        let farming_ticket = FarmingTicket::unpack(&farming_ticket_account.data).unwrap();
+        let farming_ticket_one = FarmingTicket::unpack(&user_one.farming_ticket_account.data).unwrap();
+        let farming_ticket_two = FarmingTicket::unpack(&user_two.farming_ticket_account.data).unwrap();
+
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount, tokens_to_freeze);
-        let farmed_tokens = tokens_per_period * time_period_one as u64;
+        assert_eq!(swap_token_freeze.amount, tokens_to_freeze_one + tokens_to_freeze_two);
+
+        let farmed_tokens_one =
+            tokens_per_period
+                * ((period_one_snapshots +
+                time_period_two / (period_length as i64) * period_two_snapshots +
+                time_period_three / (period_length as i64)) as u64);
+        let farmed_tokens_two = farmed_tokens_one + tokens_per_period * (time_period_four as u64 / period_length);
+        let farmed_tokens_one = ((farmed_tokens_one as u128 * tokens_to_freeze_one as u128)
+            / swap_token_freeze.amount as u128) as u64;
+        let farmed_tokens_two = ((farmed_tokens_two as u128 * tokens_to_freeze_two as u128)
+            / swap_token_freeze.amount as u128) as u64;
+
+        let user_one_farming_token =
+            spl_token::state::Account::unpack(&user_one.user_farming_token_account.data).unwrap();
+        let user_two_farming_token =
+            spl_token::state::Account::unpack(&user_two.user_farming_token_account.data).unwrap();
+
         let swap_farming_token =
             spl_token::state::Account::unpack(&state.swap_farming_token_account.data).unwrap();
-        assert_eq!(swap_farming_token.amount, token_amount - farmed_tokens);
-        let user_farming_token =
-            spl_token::state::Account::unpack(&state.user_farming_token_account.data).unwrap();
-        assert_eq!(user_farming_token.amount, farmed_tokens);
-        assert_eq!(farming_ticket.start_time, clock.unix_timestamp);
+        assert_eq!(check_diff_within_error_range(swap_farming_token.amount,
+                                                 token_amount - farmed_tokens_one - farmed_tokens_two,
+                                                 1,
+                                                 100),
+                   true);
+
+        assert_eq!(check_diff_within_error_range(user_one_farming_token.amount,
+                                                 farmed_tokens_one,
+                                                 1,
+                                                 100),
+                   true);
+        assert_eq!(check_diff_within_error_range(user_two_farming_token.amount,
+                                                 farmed_tokens_two,
+                                                 1,
+                                                 100),
+                   true);
+        assert_eq!(farming_ticket_one.start_time, user_one_withdrawal_timestamp);
+        assert_eq!(farming_ticket_two.start_time, current_timestamp);
     }
 
     #[test]
@@ -7606,8 +7955,8 @@ mod tests {
         let trade_fee_denominator = 10000;
         let owner_trade_fee_numerator = 5;
         let owner_trade_fee_denominator = 10000;
-        let owner_withdraw_fee_numerator = 5;
-        let owner_withdraw_fee_denominator = 1000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
         let host_fee_numerator = 0;
         let host_fee_denominator = 0;
 
@@ -7631,46 +7980,62 @@ mod tests {
         };
         let user_key = Pubkey::new_unique();
 
-        let token_amount = 100_000;
+        let token_amount = 100_000_000;
         let tokens_per_period = 100;
-        let period_length = 1;
-        let tokens_to_freeze = 100_000;
-        let time_period_one = 100;
+        let period_length: u64 = 60 * 60 * 24;
+        let tokens_to_freeze_one = 100_000;
+        let tokens_to_freeze_two = 1_000_000;
+
+        let pool_amount = INITIAL_SWAP_POOL_AMOUNT / 10;
+        let deposit_a = token_a_amount / 10;
+        let deposit_b = token_b_amount / 10;
+        let time_period_one = period_length as i64;
+        let period_one_snapshots = 15;
+        let time_period_two = (period_length * 30) as i64;
+        let period_two_snapshots = 3;
+        let time_period_three = crate::yield_farming::farming_state::NO_WITHDRAWAL_TIME;
 
         let clock_key = Pubkey::from_str("SysvarC1ock11111111111111111111111111111111")
             .expect("Clock pubkey creation failed");
-        let mut clock = Clock::default();
-        clock.unix_timestamp = SystemTime::now()
+
+        let mut current_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH).expect("wrong current system time")
             .as_secs() as i64;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        let mut clock_account = get_clock_for_time(current_timestamp);
 
         let mut accounts =
             SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
 
         accounts.initialize_swap().unwrap();
 
-        let pool_key = accounts.pool_token_key;
-        let mut pool_account = accounts.pool_token_account.clone();
-
-        let mut state = FarmingAccountInfo::new(
-            100000,
+        let mut state = FarmingStateInfo::new(
+            token_amount,
             user_key,
             accounts.authority_key);
 
-        let farming_ticket_key = Pubkey::new_unique();
-        let mut farming_ticket_account = Account::new(0, FarmingTicket::LEN, &SWAP_PROGRAM_ID);
+        let mut user_one = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
+        let mut user_two = create_user_and_deposit(
+            &mut accounts,
+            &mut state,
+            &user_key,
+            deposit_a,
+            deposit_b,
+            pool_amount.try_into().unwrap(),
+        );
 
         accounts.init_farming(
             &user_key,
             &clock_key,
             &mut clock_account,
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
+            &state.owner_farming_token_key,
+            &mut state.owner_farming_token_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
             token_amount,
@@ -7679,55 +8044,257 @@ mod tests {
         ).unwrap();
 
         accounts.start_farming(
-            &user_key,
-            &pool_key,
-            &mut pool_account,
-            &farming_ticket_key,
-            &mut farming_ticket_account,
+            &user_one.user_key,
+            &user_one.pool_key,
+            &mut user_one.pool_account,
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
             &clock_key,
             &mut clock_account,
-            tokens_to_freeze,
+            tokens_to_freeze_one,
         ).unwrap();
 
-        clock.unix_timestamp += time_period_one;
-        let mut clock_account = Account::new_data(
-            1000000000,
-            &clock,
-            &solana_program::system_program::ID,
-        ).expect("account creation failed");
+        accounts.start_farming(
+            &user_two.user_key,
+            &user_two.pool_key,
+            &mut user_two.pool_account,
+            &user_two.farming_ticket_key,
+            &mut user_two.farming_ticket_account,
+            &clock_key,
+            &mut clock_account,
+            tokens_to_freeze_two,
+        ).unwrap();
+
+        let mut i = 0;
+        while i < period_one_snapshots {
+            current_timestamp += time_period_one;
+            clock_account = get_clock_for_time(current_timestamp);
+
+            accounts.take_farming_snapshot(
+                &clock_key,
+                &mut clock_account,
+            ).unwrap();
+            i += 1;
+        }
+        assert_eq!(Err(FarmingError::MinimumWithdrawalTimeNotPassed.into()),
+                   accounts.withdraw_farmed(
+                       &user_one.user_farming_token_key,
+                       &mut user_one.user_farming_token_account,
+                       &user_one.farming_ticket_key,
+                       &mut user_one.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_one.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   )
+        );
+
+        let mut i = 0;
+        while i < period_two_snapshots {
+            current_timestamp += time_period_two;
+            clock_account = get_clock_for_time(current_timestamp);
+
+            accounts.take_farming_snapshot(
+                &clock_key,
+                &mut clock_account,
+            ).unwrap();
+            i += 1;
+        }
+        println!("current stamp {}", current_timestamp);
+
+        current_timestamp += 1;
+        clock_account = get_clock_for_time(current_timestamp);
+
+        accounts.end_farming(
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
+            &user_one.pool_key,
+            &mut user_one.pool_account,
+            &user_one.user_key,
+            &clock_key,
+            &mut clock_account,
+        ).unwrap();
+
+        assert_eq!(Err(FarmingError::MinimumWithdrawalTimeNotPassed.into()),
+                   accounts.withdraw_farmed(
+                       &user_two.user_farming_token_key,
+                       &mut user_two.user_farming_token_account,
+                       &user_two.farming_ticket_key,
+                       &mut user_two.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_two.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   ));
+
+        current_timestamp += time_period_three;
+        clock_account = get_clock_for_time(current_timestamp);
 
         accounts.take_farming_snapshot(
             &clock_key,
             &mut clock_account,
         ).unwrap();
 
-        accounts.end_farming(
-            &farming_ticket_key,
-            &mut farming_ticket_account,
+        accounts.withdraw_farmed(
+            &user_one.user_farming_token_key,
+            &mut user_one.user_farming_token_account,
+            &user_one.farming_ticket_key,
+            &mut user_one.farming_ticket_account,
             &state.swap_farming_token_key,
             &mut state.swap_farming_token_account,
-            &state.user_farming_token_key,
-            &mut state.user_farming_token_account,
-            &pool_key,
-            &mut pool_account,
-            &user_key,
+            &user_one.user_key,
+            &clock_key,
+            &mut clock_account,
+        ).unwrap();
+
+        assert_eq!(Err(ProgramError::InvalidAccountData),
+                   accounts.withdraw_farmed(
+                       &user_one.user_farming_token_key,
+                       &mut user_one.user_farming_token_account,
+                       &user_one.farming_ticket_key,
+                       &mut user_one.farming_ticket_account,
+                       &state.swap_farming_token_key,
+                       &mut state.swap_farming_token_account,
+                       &user_one.user_key,
+                       &clock_key,
+                       &mut clock_account,
+                   ));
+
+        accounts.withdraw_farmed(
+            &user_two.user_farming_token_key,
+            &mut user_two.user_farming_token_account,
+            &user_two.farming_ticket_key,
+            &mut user_two.farming_ticket_account,
+            &state.swap_farming_token_key,
+            &mut state.swap_farming_token_account,
+            &user_two.user_key,
             &clock_key,
             &mut clock_account,
         ).unwrap();
 
         //let farming_state = FarmingState::unpack(&accounts.farming_state_account.data).unwrap();
-
         let swap_token_freeze =
             spl_token::state::Account::unpack(&accounts.token_freeze_account.data).unwrap();
-        assert_eq!(swap_token_freeze.amount, 0);
-        let farmed_tokens = tokens_per_period * time_period_one as u64;
+        assert_eq!(swap_token_freeze.amount, tokens_to_freeze_two);
+        let period_one_tokens = tokens_per_period * period_one_snapshots;
+        let period_two_tokens = (tokens_per_period
+            * period_two_snapshots * time_period_two as u64) / period_length;
+        let period_three_tokens = (tokens_per_period
+            * time_period_three as u64) / period_length;
+
+        println!("{} {} {}",  period_one_tokens ,period_two_tokens, period_three_tokens);
+        let farmed_tokens_one = period_one_tokens + period_two_tokens;
+        let farmed_tokens_two = period_one_tokens + period_two_tokens;
+        let farmed_tokens_one = ((farmed_tokens_one as u128 * tokens_to_freeze_one as u128)
+            / ((tokens_to_freeze_one + tokens_to_freeze_two) as u128)) as u64;
+        let farmed_tokens_two = ((farmed_tokens_two as u128 * tokens_to_freeze_two as u128)
+            / ((tokens_to_freeze_one + tokens_to_freeze_two) as u128)) as u64
+            + period_three_tokens;
+        let farmed_tokens_total = farmed_tokens_one + farmed_tokens_two;
+
         let swap_farming_token =
             spl_token::state::Account::unpack(&state.swap_farming_token_account.data).unwrap();
-        assert_eq!(swap_farming_token.amount, token_amount - farmed_tokens);
-        let user_farming_token =
-            spl_token::state::Account::unpack(&state.user_farming_token_account.data).unwrap();
-        assert_eq!(user_farming_token.amount, farmed_tokens);
 
-        assert_eq!(FarmingTicket::is_initialized(farming_ticket_account.data.as_slice()), false);
+        assert_eq!(check_diff_within_error_range(
+            swap_farming_token.amount,
+            token_amount - farmed_tokens_total,
+            1,
+            100,
+        ), true);
+        let user_one_farming_token =
+            spl_token::state::Account::unpack(&user_one.user_farming_token_account.data).unwrap();
+        let user_two_farming_token =
+            spl_token::state::Account::unpack(&user_two.user_farming_token_account.data).unwrap();
+
+        assert_eq!(check_diff_within_error_range(
+            user_one_farming_token.amount,
+            farmed_tokens_one,
+            1,
+            100), true);
+        assert_eq!(check_diff_within_error_range(
+            user_two_farming_token.amount,
+            farmed_tokens_two,
+            1,
+            100), true);
+        assert_eq!(FarmingTicket::is_initialized(user_one.farming_ticket_account.data.as_slice()), false);
     }
+/*
+    #[test]
+    fn test_custom_util() {
+        let user_key = Pubkey::new_unique();
+        let trade_fee_numerator = 25;
+        let trade_fee_denominator = 10000;
+        let owner_trade_fee_numerator = 5;
+        let owner_trade_fee_denominator = 10000;
+        let owner_withdraw_fee_numerator = 0;
+        let owner_withdraw_fee_denominator = 0;
+        let host_fee_numerator = 0;
+        let host_fee_denominator = 0;
+
+        let fees = Fees {
+            trade_fee_numerator,
+            trade_fee_denominator,
+            owner_trade_fee_numerator,
+            owner_trade_fee_denominator,
+            owner_withdraw_fee_numerator,
+            owner_withdraw_fee_denominator,
+            host_fee_numerator,
+            host_fee_denominator,
+        };
+
+        let token_a_amount = 1000000;
+        let token_b_amount = 2000000;
+        let curve_type = CurveType::ConstantProduct;
+        let swap_curve = SwapCurve {
+            curve_type,
+            calculator: Box::new(ConstantProductCurve {}),
+        };
+
+        let withdrawer_key = Pubkey::new_unique();
+        let initial_a = token_a_amount / 10;
+        let initial_b = token_b_amount / 10;
+        let initial_pool = swap_curve.calculator.new_pool_supply() / 10;
+        let withdraw_amount = initial_pool / 4;
+        let minimum_token_a_amount = initial_a / 40;
+        let minimum_token_b_amount = initial_b / 40;
+
+        let mut accounts =
+            SwapAccountInfo::new(&user_key, fees, swap_curve, token_a_amount, token_b_amount);
+
+
+
+        accounts.initialize_swap().unwrap();
+
+        let (
+            token_a_key,
+            mut token_a_account,
+            token_b_key,
+            mut token_b_account,
+            pool_key,
+            mut pool_account,
+        ) = accounts.setup_token_accounts(
+            &user_key,
+            &withdrawer_key,
+            initial_a,
+            initial_b,
+            initial_pool.try_into().unwrap(),
+        );
+
+        accounts
+            .withdraw_all_token_types(
+                &withdrawer_key,
+                &pool_key,
+                &mut pool_account,
+                &token_a_key,
+                &mut token_a_account,
+                &token_b_key,
+                &mut token_b_account,
+                withdraw_amount.try_into().unwrap(),
+                minimum_token_a_amount,
+                minimum_token_b_amount,
+            )
+            .unwrap();
+    }*/
 }

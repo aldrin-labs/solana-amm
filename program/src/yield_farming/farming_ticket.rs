@@ -16,6 +16,7 @@ pub struct FarmingTicket {
     pub is_initialized: bool,
     pub tokens_frozen: u64,
     pub start_time: UnixTimestamp,
+    pub end_time: UnixTimestamp,
     pub token_authority: Pubkey,
     pub farming_state: Pubkey,
 }
@@ -38,38 +39,41 @@ impl IsInitialized for FarmingTicket {
 }
 
 impl Pack for FarmingTicket {
-    const LEN: usize = 89;
+    const LEN: usize = 97;
 
     fn pack_into_slice(&self, output: &mut [u8]) {
-        let output = array_mut_ref![output, 0, 89];
+        let output = array_mut_ref![output, 0, 97];
         let (
             discriminator,
             is_initialized,
             tokens_frozen,
             start_time,
+            end_time,
             token_authority,
             farming_state,
-        ) = mut_array_refs![output, 8, 1, 8, 8, 32, 32];
+        ) = mut_array_refs![output, 8, 1, 8, 8, 8, 32, 32];
         discriminator.copy_from_slice(&self.discriminator.to_le_bytes());
         is_initialized[0] = self.is_initialized as u8;
         tokens_frozen.copy_from_slice(&self.tokens_frozen.to_le_bytes());
         start_time.copy_from_slice(&self.start_time.to_le_bytes());
+        end_time.copy_from_slice(&self.end_time.to_le_bytes());
         token_authority.copy_from_slice(self.token_authority.as_ref());
         farming_state.copy_from_slice(self.farming_state.as_ref());
     }
 
     /// Unpacks a byte buffer into a [SwapV1](struct.SwapV1.html).
     fn unpack_from_slice(input: &[u8]) -> Result<Self, ProgramError> {
-        let input = array_ref![input, 0, 89];
+        let input = array_ref![input, 0, 97];
         #[allow(clippy::ptr_offset_with_cast)]
             let (
             discriminator,
             is_initialized,
             tokens_frozen,
             start_time,
+            end_time,
             token_authority,
             farming_state,
-        ) = array_refs![input, 8, 1, 8, 8, 32, 32];
+        ) = array_refs![input, 8, 1, 8, 8, 8, 32, 32];
         Ok(Self {
             discriminator: match discriminator {
                 &TICKET_DISCRIMINATOR => u64::from_le_bytes(TICKET_DISCRIMINATOR),
@@ -82,6 +86,7 @@ impl Pack for FarmingTicket {
             },
             tokens_frozen: u64::from_le_bytes(*tokens_frozen),
             start_time: UnixTimestamp::from_le_bytes(*start_time),
+            end_time: UnixTimestamp::from_le_bytes(*end_time),
             token_authority: Pubkey::new_from_array(*token_authority),
             farming_state: Pubkey::new_from_array(*farming_state),
         })

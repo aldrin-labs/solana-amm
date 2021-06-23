@@ -68,8 +68,8 @@ const FEES: &Fees = &Fees {
     trade_fee_denominator: 10000,
     owner_trade_fee_numerator: 5,
     owner_trade_fee_denominator: 10000,
-    owner_withdraw_fee_numerator: 5,
-    owner_withdraw_fee_denominator: 1000,
+    owner_withdraw_fee_numerator: 0,
+    owner_withdraw_fee_denominator: 0,
     host_fee_numerator: 0,
     host_fee_denominator: 0,
 };

@@ -133,9 +133,9 @@ fn unpack_snapshot_slice(input: &[u8], length: usize) -> Result<Vec<Snapshot>, P
         ret_vec.push(Snapshot::unpack_from_slice(snapshot)?);
         i += 1;
     }
-    while i < QUEUE_LENGTH {
+   /* while i < QUEUE_LENGTH {
         ret_vec.push(Snapshot::default());
         i += 1;
-    }
+    }*/
     Ok(ret_vec)
 }
