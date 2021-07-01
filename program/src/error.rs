@@ -106,9 +106,12 @@ impl<T> DecodeError<T> for SwapError {
 /// Errors that may be returned by the farming instructions of the TokenSwap program.
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
 pub enum FarmingError {
-    /// Farming funds cannot be withdrawn before the minimum withdrawal time has passed
+    /// Farmed tokens cannot be withdrawn before the minimum withdrawal time has passed
     #[error("Cannot withdraw before the minimum withdrawal time has passed")]
     MinimumWithdrawalTimeNotPassed,
+    /// Frozen LP tokens cannot be withdrawn before at least one period from entry/withdrawal passed
+    #[error("Cannot unfreeze before one period from the last action with ticket passed")]
+    MinimumUnfreezeTimeNotPassed,
     ///Got no farming tokens ready for withdrawal
     #[error("Got no farming tokens ready for withdrawal")]
     NoTokensToWithdraw,

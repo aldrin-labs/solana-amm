@@ -1278,6 +1278,10 @@ impl Processor {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
+        if clock.unix_timestamp < farming_ticket.start_time + (farming_state.period_length as i64) {
+            return Err(FarmingError::MinimumUnfreezeTimeNotPassed.into());
+        }
+
         Self::token_transfer(
             swap_info.key,
             token_program_info.clone(),
