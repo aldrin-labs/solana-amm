@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# Install following dependencies:
-#
-# cargo install grcov
-# rustup component add llvm-tools-preview
+# Generates a code coverage report into target/debug/coverage.
 #
 # Source: https://github.com/mozilla/grcov
+
+# dependencies install will be skipped if already present
+cargo install grcov
+rustup component add llvm-tools-preview
 
 export RUSTC_BOOTSTRAP=1
 export CARGO_INCREMENTAL=0
