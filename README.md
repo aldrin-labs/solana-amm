@@ -1,16 +1,16 @@
-* Solana v1.9.18
-* Anchor v0.24.2
+- Solana v1.9.18
+- Anchor v0.24.2
+- [Code coverage][project-code-coverage]
+- [Rust docs][project-rust-docs]
+- [Changelog][project-changelog]
 
 # AMM
 
-## Glossary
-
-A **farmer** is a user who staked their LP tokens in an LP vault.
-
-A **harvest mint** is a token program's [`Mint`][token-program-mint], and
-tokens of harvest mint are is distributed to farmers as rewards for their
-staking.
-
+TODO: https://gitlab.com/crypto_project/defi/amm/-/issues/13
 
 <!-- List of References -->
+
 [token-program-mint]: https://docs.rs/anchor-spl/0.24.2/anchor_spl/token/struct.Mint.html
+[project-code-coverage]: https://crypto_project.gitlab.io/defi/amm/coverage
+[project-rust-docs]: https://crypto_project.gitlab.io/defi/amm/amm
+[project-changelog]: https://crypto_project.gitlab.io/defi/amm/amm.changelog.html
