@@ -2,8 +2,8 @@
 /// vault. A harvest mint is represented by [`crate::models::Farm`].
 ///
 /// This threshold projects into [`crate::models::Farmer`]'s property
-/// `available_harvest` and into [`crate::models::History`]'s property
-/// `tokens_per_slot`.
+/// `available_harvest` and into [`crate::models::Farm`]'s property
+/// `harvests`.
 ///
 /// We opt for a value based on a judgement call with the tokenomics team. In
 /// the old program, this value was 10.

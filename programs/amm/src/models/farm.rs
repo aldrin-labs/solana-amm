@@ -40,13 +40,12 @@ pub struct Farm {
     /// Len must match [`consts::MAX_HARVEST_MINTS`].
     pub harvests: [Harvest; 10],
     /// Stores snapshots of the amount of total staked tokens and changes to
-    /// `ρ`. Note that [`Farm`] is in a many-to-one relationship to a
-    /// [`History`].
+    /// `ρ`.
     pub snapshots: Snapshots,
 }
 
 /// # Important
-/// If the `harvest_mint` is equal to [`PublicKey::default`], then the harvest
+/// If the `harvest_mint` is equal to [`Pubkey::default`], then the harvest
 /// is uninitialized. We don't use an enum to represent uninitialized mints as
 /// the anchor FE client has troubles parsing enums in zero copy accounts. And
 /// this way we also safe some account space.
