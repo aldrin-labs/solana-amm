@@ -1,0 +1,113 @@
+stages:
+  - build
+  - pages
+
+variables:
+  KATEX_VERSION: "0.13.9"
+  SOLANA_VERSION: "1.9.18"
+
+# runs unit tests in parallel with other build stage jobs
+unit:
+  stage: build
+  image: registry.gitlab.com/crypto_project/defi/infra/rust-solana:${SOLANA_VERSION}
+  cache:
+    key: "unit-cache-${CI_COMMIT_BRANCH}"
+    paths:
+      - target
+  before_script:
+    # Add SSH key which is stored in gitlab variables and allows us to access
+    # dependency crates in different repos.
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  script:
+    - cargo fmt --check
+    - cargo test --lib
+
+# builds program and idl in parallel with other build stage jobs
+program:
+  stage: build
+  image: registry.gitlab.com/crypto_project/defi/infra/rust-solana:${SOLANA_VERSION}
+  cache:
+    key: "program-cache-${CI_COMMIT_BRANCH}"
+    paths:
+      - target
+  artifacts:
+    paths:
+      - target/deploy/amm.so
+      - target/idl/amm.json
+      - target/types/amm.ts
+  before_script:
+    # Add SSH key which is stored in gitlab variables and allows us to access
+    # dependency crates in different repos.
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+
+    - yarn
+  script:
+    - npm run lint
+    # both builds the program and runs integration tests
+    - ./bin/test.sh
+
+# We generate docs.rs style documentation for the codebase and publish it as
+# gitlab pages for the repository.
+#
+# This runs automatically on develop branch, or can be manually triggered on
+# any other branch.
+.pages_job:
+  image: registry.gitlab.com/crypto_project/defi/infra/rust-solana:${SOLANA_VERSION}
+  artifacts:
+    paths:
+      - public
+  before_script:
+    # Add SSH key which is stored in gitlab variables and allows us to access
+    # dependency crates in different repos.
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  script:
+    - rustup override set nightly
+
+    # generates docs.rs style page
+    - cargo doc --lib --no-deps --document-private-items
+    - cp -r target/doc public
+    - cp -r docs public/docs
+
+    # generate code coverage report
+    - ./bin/codecov.sh
+    - cp -r target/debug/coverage public
+
+    # generates public index html file from README
+    - node /scripts/prepareReadme.js |
+      pandoc -t html --standalone --filter pandoc-katex
+      --css "https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/katex.min.css"
+      --css https://pandoc.org/demo/pandoc.css
+      --metadata title="AMM program"
+      -o public/index.html
+
+    # builds changelogs as static web pages
+    - cat programs/amm/CHANGELOG.md |
+      pandoc -t html --standalone
+      --metadata title="AMM program"
+      -o public/amm.changelog.html
+
+# This job publishes pages to
+# https://crypto_project.gitlab.io/defi/amm
+pages:
+  extends: .pages_job
+  stage: pages
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+
+# This job creates artifacts which can be browsed as static website, but does
+# _not_ update https://crypto_project.gitlab.io/defi/amm
+pages_manual:
+  extends: .pages_job
+  stage: pages
+  when: manual
+  except:
+    - develop
