@@ -14,7 +14,7 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod amm {
     use super::*;
 
-    pub fn create_lp_vault(ctx: Context<CreateLpVault>) -> Result<()> {
-        endpoints::farming::create_lp_vault::handle(ctx)
+    pub fn create_farm(ctx: Context<CreateFarm>) -> Result<()> {
+        endpoints::farming::create_farm::handle(ctx)
     }
 }
