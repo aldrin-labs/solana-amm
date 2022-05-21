@@ -5,8 +5,8 @@ use crate::prelude::*;
 /// To create a user incentive for token possession, we distribute time
 /// dependent rewards. A farmer stakes tokens of a mint `S`, ie. they lock them
 /// with the program, and they become eligible for harvest.
-#[zero_copy]
 #[derive(Default)]
+#[account(zero_copy)]
 pub struct Farm {
     /// Can change settings on this farm.
     pub admin: Pubkey,
@@ -32,23 +32,26 @@ pub struct Farm {
     /// List of different harvest mints with configuration of how many tokens
     /// are released per slot.
     ///
+    /// # Important
+    /// Defaults to an array with all harvest mints as default pubkeys. Only
+    /// when a pubkey is not the default one is the harvest initialized.
+    ///
     /// # Note
     /// Len must match [`consts::MAX_HARVEST_MINTS`].
     pub harvests: [Harvest; 10],
     /// Stores snapshots of the amount of total staked tokens and changes to
     /// `ρ`. Note that [`Farm`] is in a many-to-one relationship to a
     /// [`History`].
-    pub ring_buffer: Snapshots,
+    pub snapshots: Snapshots,
 }
 
 /// # Important
 /// If the `harvest_mint` is equal to [`PublicKey::default`], then the harvest
 /// is uninitialized. We don't use an enum to represent uninitialized mints as
-/// the anchor FE client has troubles parsing enums in zero copy accounts.
-///
-/// TODO: link an issue for this bug
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
-#[repr(packed)]
+/// the anchor FE client has troubles parsing enums in zero copy accounts. And
+/// this way we also safe some account space.
+#[derive(Debug, Eq, PartialEq, Default)]
+#[zero_copy]
 pub struct Harvest {
     /// The mint of tokens which are distributed to farmers. This can be the
     /// same mint as `S`.
@@ -76,8 +79,8 @@ pub struct Harvest {
     pub tokens_per_slot: [TokensPerSlotHistory; 10],
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[repr(packed)]
+#[derive(Debug, Default, Eq, PartialEq)]
+#[zero_copy]
 pub struct TokensPerSlotHistory {
     pub value: TokenAmount,
     /// The new value was updated at this slot. However, it will not be valid
@@ -87,8 +90,8 @@ pub struct TokensPerSlotHistory {
     pub at: Slot,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-#[repr(packed)]
+#[derive(Eq, PartialEq)]
+#[zero_copy]
 pub struct Snapshots {
     /// What's the last snapshot index to consider valid. When the buffer tip
     /// reaches [`consts::SNAPSHOTS_LEN`], it is set to 0 again and now the
@@ -100,7 +103,11 @@ pub struct Snapshots {
     /// if the slot is equal to zero, that means that we haven't done the first
     /// rotation around the buffer yet. And therefore if the tip is at N, in
     /// this special case the beginning is on index 0 and not N + 1.
-    pub ring_buffer_tip: u32,
+    ///
+    /// # Note
+    /// It's [`u64`] and not smaller because otherwise there are issues with
+    /// packing of this struct and deserialization.
+    pub ring_buffer_tip: u64,
     /// How many tokens were in the staking vault.
     ///
     /// # Note
@@ -109,8 +116,8 @@ pub struct Snapshots {
 }
 
 /// Defines a snapshot window.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[repr(packed)]
+#[derive(Debug, Default, Eq, PartialEq)]
+#[zero_copy]
 pub struct Snapshot {
     pub staked: TokenAmount,
     pub started_at: Slot,
@@ -123,6 +130,12 @@ impl Default for Snapshots {
             ring_buffer: [Snapshot::default(); consts::SNAPSHOTS_LEN],
         }
     }
+}
+
+impl Farm {
+    pub const SIGNER_PDA_PREFIX: &'static [u8; 6] = b"signer";
+    pub const STAKE_VAULT_PREFIX: &'static [u8; 11] = b"stake_vault";
+    pub const VESTING_VAULT_PREFIX: &'static [u8; 13] = b"vesting_vault";
 }
 
 #[cfg(test)]
@@ -151,5 +164,12 @@ mod tests {
         let farm = Farm::default();
 
         assert_eq!(farm.harvests.len(), consts::MAX_HARVEST_MINTS);
+    }
+
+    #[test]
+    fn it_has_stable_size() {
+        let farm = Farm::default();
+
+        assert_eq!(8 + std::mem::size_of_val(&farm), 18_384);
     }
 }
