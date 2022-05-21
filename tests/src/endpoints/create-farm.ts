@@ -83,8 +83,8 @@ export function test() {
       expect(stakeVault.isInitialized).to.be.true;
       expect(vestingVault.isInitialized).to.be.true;
 
-      expect(farmInfo.harvest).to.be.lengthOf(10);
-      (farmInfo.harvest as any[]).forEach((h) => {
+      expect(farmInfo.harvests).to.be.lengthOf(10);
+      (farmInfo.harvests as any[]).forEach((h) => {
         expect(h.harvestMint).to.deep.eq(PublicKey.default);
         expect(h.harvestVault).to.deep.eq(PublicKey.default);
 
