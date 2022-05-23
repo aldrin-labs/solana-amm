@@ -85,8 +85,8 @@ export function test() {
 
       expect(farmInfo.harvests).to.be.lengthOf(10);
       (farmInfo.harvests as any[]).forEach((h) => {
-        expect(h.harvestMint).to.deep.eq(PublicKey.default);
-        expect(h.harvestVault).to.deep.eq(PublicKey.default);
+        expect(h.mint).to.deep.eq(PublicKey.default);
+        expect(h.vault).to.deep.eq(PublicKey.default);
 
         expect(h.tokensPerSlot).to.be.lengthOf(10);
         h.tokensPerSlot.forEach(({ value, at }) => {

@@ -1,6 +1,7 @@
 //! Admin's representation of rewards and history of the system.
 
 use crate::prelude::*;
+use std::cell;
 
 /// To create a user incentive for token possession, we distribute time
 /// dependent rewards. A farmer stakes tokens of a mint `S`, ie. they lock them
@@ -54,12 +55,12 @@ pub struct Farm {
 pub struct Harvest {
     /// The mint of tokens which are distributed to farmers. This can be the
     /// same mint as `S`.
-    pub harvest_mint: Pubkey,
+    pub mint: Pubkey,
     /// Admin deposits the reward tokens which are harvested by farmer into
     /// this vault.
     ///
     /// This is derivable from the farm's pubkey and harvest mint's pubkey.
-    pub harvest_vault: Pubkey,
+    pub vault: Pubkey,
     /// The harvest is distributed using a configurable _tokens per slot_
     /// (`ρ`.) This value represents how many tokens should be divided
     /// between all farmers per slot (~0.4s.)
@@ -137,6 +138,53 @@ impl Farm {
     pub const VESTING_VAULT_PREFIX: &'static [u8; 13] = b"vesting_vault";
 }
 
+impl Harvest {
+    /// Returns the last change to ρ before or at a given slot.
+    ///
+    /// # Important
+    /// If the admin changes ρ during an open snapshot window, it should only be
+    /// considered from the next snapshot. This method _does not account_ for
+    /// that invariant.
+    ///
+    /// # Returns
+    /// First tuple member is the ρ itself, second tuple member returns the slot
+    /// of the _next_ ρ change if any ([`None`] if latest.)
+    pub fn tokens_per_slot(&self, at: Slot) -> (TokenAmount, Option<Slot>) {
+        match self
+            .tokens_per_slot
+            .iter()
+            .position(|tps| tps.at.slot <= at.slot)
+        {
+            Some(0) => (self.tokens_per_slot[0].value, None),
+            Some(i) => (
+                self.tokens_per_slot[i].value,
+                Some(self.tokens_per_slot[i - 1].at),
+            ),
+            None => {
+                msg!("There is no ρ history for the farm at {}", at.slot);
+                (
+                    // no history = harvest lost
+                    TokenAmount { amount: 0 },
+                    // find the oldest (hence rev) change to the setting
+                    self.tokens_per_slot
+                        .iter()
+                        .rev()
+                        .find(|tps| tps.value.amount != 0)
+                        .map(|tps| tps.at)
+                        .or(Some(self.tokens_per_slot[0].at)),
+                )
+            }
+        }
+    }
+}
+
+impl Farm {
+    /// Use use [`cell::Ref`] because farm is too large to fit on stack.
+    pub fn latest_snapshot(farm: &cell::Ref<Farm>) -> Snapshot {
+        farm.snapshots.ring_buffer[farm.snapshots.ring_buffer_tip as usize]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +218,170 @@ mod tests {
         let farm = Farm::default();
 
         assert_eq!(8 + std::mem::size_of_val(&farm), 18_384);
+    }
+
+    #[test]
+    fn it_calculates_tps_with_empty_setting() {
+        let harvest = Harvest::default();
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
+        assert_eq!(tps.amount, 0);
+        assert!(next_change.is_none());
+    }
+
+    #[test]
+    fn it_calculates_tps_with_one_setting() {
+        let mut harvest = Harvest::default();
+        harvest.tokens_per_slot[0] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 10 },
+            at: Slot { slot: 100 },
+        };
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
+        assert_eq!(tps.amount, 0);
+        assert_eq!(next_change, Some(Slot { slot: 100 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 50 });
+        assert_eq!(tps.amount, 0);
+        assert_eq!(next_change, Some(Slot { slot: 100 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 100 });
+        assert_eq!(tps.amount, 10);
+        assert!(next_change.is_none());
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 101 });
+        assert_eq!(tps.amount, 10);
+        assert!(next_change.is_none());
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 200 });
+        assert_eq!(tps.amount, 10);
+        assert!(next_change.is_none());
+    }
+
+    #[test]
+    fn it_calculates_tps_with_five_settings() {
+        let mut harvest = Harvest::default();
+        harvest.tokens_per_slot[0] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 10 },
+            at: Slot { slot: 100 },
+        };
+        harvest.tokens_per_slot[1] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 5 },
+            at: Slot { slot: 90 },
+        };
+        harvest.tokens_per_slot[2] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 8 },
+            at: Slot { slot: 80 },
+        };
+        harvest.tokens_per_slot[3] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 0 },
+            at: Slot { slot: 70 },
+        };
+        harvest.tokens_per_slot[4] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 20 },
+            at: Slot { slot: 60 },
+        };
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 101 });
+        assert_eq!(tps.amount, 10);
+        assert!(next_change.is_none());
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 100 });
+        assert_eq!(tps.amount, 10);
+        assert!(next_change.is_none());
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 91 });
+        assert_eq!(tps.amount, 5);
+        assert_eq!(next_change, Some(Slot { slot: 100 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 90 });
+        assert_eq!(tps.amount, 5);
+        assert_eq!(next_change, Some(Slot { slot: 100 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 89 });
+        assert_eq!(tps.amount, 8);
+        assert_eq!(next_change, Some(Slot { slot: 90 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 81 });
+        assert_eq!(tps.amount, 8);
+        assert_eq!(next_change, Some(Slot { slot: 90 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 80 });
+        assert_eq!(tps.amount, 8);
+        assert_eq!(next_change, Some(Slot { slot: 90 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 71 });
+        assert_eq!(tps.amount, 0);
+        assert_eq!(next_change, Some(Slot { slot: 80 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 61 });
+        assert_eq!(tps.amount, 20);
+        assert_eq!(next_change, Some(Slot { slot: 70 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 60 });
+        assert_eq!(tps.amount, 20);
+        assert_eq!(next_change, Some(Slot { slot: 70 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 59 });
+        assert_eq!(tps.amount, 0);
+        assert_eq!(next_change, Some(Slot { slot: 60 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
+        assert_eq!(tps.amount, 0);
+        assert_eq!(next_change, Some(Slot { slot: 60 }));
+    }
+
+    #[test]
+    fn it_calculates_tps_with_max_settings() {
+        let mut harvest = Harvest::default();
+        harvest.tokens_per_slot[0] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 10 },
+            at: Slot { slot: 100 },
+        };
+        for i in 1..(consts::MAX_HARVEST_MINTS - 2) {
+            harvest.tokens_per_slot[i] = harvest.tokens_per_slot[0];
+        }
+        harvest.tokens_per_slot[8] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 1 },
+            at: Slot { slot: 10 },
+        };
+        harvest.tokens_per_slot[9] = TokensPerSlotHistory {
+            value: TokenAmount { amount: 5 },
+            at: Slot { slot: 5 },
+        };
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 9 });
+        assert_eq!(tps.amount, 5);
+        assert_eq!(next_change, Some(Slot { slot: 10 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 5 });
+        assert_eq!(tps.amount, 5);
+        assert_eq!(next_change, Some(Slot { slot: 10 }));
+
+        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
+        assert_eq!(tps.amount, 0);
+        assert_eq!(next_change, Some(Slot { slot: 5 }));
+    }
+
+    #[test]
+    fn it_returns_farm_latest_snapshot() {
+        let farm = Farm::default();
+        assert_eq!(
+            Farm::latest_snapshot(&cell::RefCell::new(farm).borrow()),
+            Snapshot::default()
+        );
+
+        let mut farm = Farm::default();
+        farm.snapshots.ring_buffer_tip = 10;
+        farm.snapshots.ring_buffer[10] = Snapshot {
+            staked: TokenAmount::new(10),
+            started_at: Slot::new(20),
+        };
+        assert_eq!(
+            Farm::latest_snapshot(&cell::RefCell::new(farm).borrow()),
+            Snapshot {
+                staked: TokenAmount::new(10),
+                started_at: Slot::new(20),
+            }
+        );
     }
 }
