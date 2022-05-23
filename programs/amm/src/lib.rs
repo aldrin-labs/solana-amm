@@ -39,4 +39,16 @@ pub mod amm {
             tokens_per_slot,
         )
     }
+
+    pub fn remove_harvest(
+        ctx: Context<RemoveHarvest>,
+        farm_signer_bump_seed: u8,
+        harvest_mint: Pubkey,
+    ) -> Result<()> {
+        endpoints::farming::remove_harvest::handle(
+            ctx,
+            farm_signer_bump_seed,
+            harvest_mint,
+        )
+    }
 }
