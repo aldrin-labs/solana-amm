@@ -1,6 +1,6 @@
 import { amm, payer, provider } from "./helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { createMint } from "@solana/spl-token";
+import { createAccount, createMint } from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
 import { TOKEN_PROGRAM_ID } from "@project-serum/anchor/dist/cjs/utils/token";
 
@@ -25,6 +25,15 @@ export interface AddHarvestArgs {
   pda: PublicKey;
   skipAdminSignature: boolean;
   tokensPerSlot: number;
+}
+
+export interface RemoveHarvestArgs {
+  admin: Keypair;
+  bumpSeed: number;
+  harvestVault: PublicKey;
+  pda: PublicKey;
+  skipAdminSignature: boolean;
+  adminHarvestWallet: PublicKey;
 }
 
 export class Farm {
@@ -205,5 +214,49 @@ export class Farm {
       mint: harvestMint,
       vault: harvestVault,
     };
+  }
+
+  public async removeHarvest(
+    mint: PublicKey,
+    input: Partial<RemoveHarvestArgs> = {}
+  ): Promise<PublicKey> {
+    const [correctPda, correctBumpSeed] = await PublicKey.findProgramAddress(
+      [Buffer.from("signer"), this.id.toBytes()],
+      amm.programId
+    );
+    const pda = input.pda ?? correctPda;
+    const bumpSeed = input.bumpSeed ?? correctBumpSeed;
+    const admin = input.admin ?? this.admin;
+    const skipAdminSignature = input.skipAdminSignature ?? false;
+
+    const [correctVaultPda, _] = await PublicKey.findProgramAddress(
+      [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
+      amm.programId
+    );
+    const harvestVault = input.harvestVault ?? correctVaultPda;
+
+    const adminHarvestWallet =
+      input.adminHarvestWallet ??
+      (await (() =>
+        createAccount(provider.connection, payer, mint, admin.publicKey))());
+
+    const signers = [];
+    if (!skipAdminSignature) {
+      signers.push(admin);
+    }
+
+    await amm.methods
+      .removeHarvest(bumpSeed, mint)
+      .accounts({
+        admin: admin.publicKey,
+        adminHarvestWallet,
+        farm: this.id,
+        farmSignerPda: pda,
+        harvestVault,
+      })
+      .signers(signers)
+      .rpc();
+
+    return adminHarvestWallet;
   }
 }
