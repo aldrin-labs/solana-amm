@@ -1,6 +1,6 @@
 [package]
 name = "amm"
-version = "0.2.0"
+version = "0.4.0"
 description = "Program for depositing liquidity, swapping and farming."
 edition = "2021"
 
@@ -21,3 +21,8 @@ overflow-checks = true
 [dependencies]
 anchor-lang = "0.24.2"
 anchor-spl = "0.24.2"
+decimal = { git = "ssh://git@gitlab.com/crypto_project/defi/decimal.git", tag = "0.1.0" }
+
+[dev-dependencies]
+solana-sdk = "1.9.18"
+serial_test = "0.6"

@@ -34,16 +34,14 @@ pub struct Slot {
     pub slot: u64,
 }
 
-#[derive(
-    AnchorDeserialize,
-    AnchorSerialize,
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-)]
-pub struct MintHash {
-    pub hash: u64,
+impl TokenAmount {
+    pub fn new(amount: u64) -> Self {
+        Self { amount }
+    }
+}
+
+impl Slot {
+    pub fn new(slot: u64) -> Self {
+        Self { slot }
+    }
 }

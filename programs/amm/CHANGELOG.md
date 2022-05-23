@@ -6,6 +6,32 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2022-05-22
+
+### Added
+
+- A method on `Farmer` model which calculates harvest in the current snapshot
+  window, thereby allowing continuous harvest.
+- A new dependency crate
+  [`decimal`](https://gitlab.com/crypto_project/defi/decimal).
+- A method on `Harvest` model which returns _tokens per slot_ configurable at
+  a given slot.
+- An `AmmError` variant `InvariantViolated` which is used for unreachable
+  program paths. If everything works correctly, this variant should never be
+  reached.
+
+### Changed
+
+- Renamed properties `harvest_mint` and `harvest_vault` on `Harvest` model to
+  `mint` and `vault` respectively.
+- Renamed `available_harvest` to `harvests` on `Farmer` model and changed the
+  inner value from `MintHash` to a new model which tracks the mint pubkey and
+  the amount available.
+
+### Removed
+
+- Model `MintHash` as we use pubkey instead.
+
 ## [0.3.0] - 2022-05-20
 
 ### Added
