@@ -13,6 +13,8 @@ pub enum AmmError {
     /// program logic works as intended.
     #[msg("There's a bug in the program, see logs for more info")]
     InvariantViolation,
+    #[msg("Farm admin does not match the provided signer")]
+    FarmAdminMismatch,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {

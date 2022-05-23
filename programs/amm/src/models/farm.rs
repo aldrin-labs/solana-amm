@@ -139,6 +139,8 @@ impl Farm {
 }
 
 impl Harvest {
+    pub const VAULT_PREFIX: &'static [u8; 13] = b"harvest_vault";
+
     /// Returns the last change to ρ before or at a given slot.
     ///
     /// # Important

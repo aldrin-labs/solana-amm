@@ -44,4 +44,10 @@ impl Slot {
     pub fn new(slot: u64) -> Self {
         Self { slot }
     }
+
+    pub fn current() -> Result<Self> {
+        Ok(Self {
+            slot: Clock::get()?.slot,
+        })
+    }
 }
