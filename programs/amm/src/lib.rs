@@ -27,4 +27,16 @@ pub mod amm {
     ) -> Result<()> {
         endpoints::farming::create_farm::handle(ctx, farm_signer_bump_seed)
     }
+
+    pub fn add_harvest(
+        ctx: Context<AddHarvest>,
+        farm_signer_bump_seed: u8,
+        tokens_per_slot: TokenAmount,
+    ) -> Result<()> {
+        endpoints::farming::add_harvest::handle(
+            ctx,
+            farm_signer_bump_seed,
+            tokens_per_slot,
+        )
+    }
 }

@@ -4,18 +4,14 @@ import chai from "chai";
 chai.use(chaiAsPromised);
 
 import * as createFarm from "./endpoints/create-farm";
-import { provider } from "./helpers";
+import * as addHarvest from "./endpoints/add-harvest";
+import { airdrop, provider } from "./helpers";
 
 describe("farming", () => {
   createFarm.test();
+  addHarvest.test();
 
-  before("airdrop SOL", async () => {
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(
-        provider.wallet.publicKey,
-        100_000_000_000
-      ),
-      "confirmed"
-    );
+  before("airdrop SOL to provider wallet", async () => {
+    await airdrop(provider.wallet.publicKey);
   });
 });
