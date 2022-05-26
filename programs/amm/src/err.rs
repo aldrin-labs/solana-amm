@@ -15,6 +15,8 @@ pub enum AmmError {
     InvariantViolation,
     #[msg("Farm admin does not match the provided signer")]
     FarmAdminMismatch,
+    #[msg("Insufficient slot time has passed since last snapshot was taken")]
+    InsufficientSlotTimeSinceLastSnapshot,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {

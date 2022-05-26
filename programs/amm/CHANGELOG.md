@@ -6,6 +6,21 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2022-05-26
+
+### Added
+
+- Endpoint for taking a snapshot.
+- Method on `Farm` model called `take_snapshot` where the 
+  core logic of the `take_snapshot` endpoint resides. It computes
+  the total amount staked and the current slot, and stores it in a 
+  snapshot while ticking the ring_buffer_tip.
+- Added `min_snapshot_window_slots` field in `Farm`
+
+### Removed
+
+- Removed `vesting_vault` field in `Farm`
+
 ## [0.4.2] - 2022-05-23
 
 ### Added

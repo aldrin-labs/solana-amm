@@ -51,13 +51,6 @@ export function test() {
       expect(logs).to.contain("unauthorized signer");
     });
 
-    it("fails if vesting vault PDA is invalid", async () => {
-      const logs = await errLogs(
-        Farm.init({ vestingVault: Keypair.generate().publicKey })
-      );
-      expect(logs).to.contain("unauthorized signer");
-    });
-
     it("works", async () => {
       const farm = await Farm.init();
       const farmInfo = await farm.fetch();
@@ -65,24 +58,15 @@ export function test() {
       expect(farmInfo.admin).to.deep.eq(farm.admin.publicKey);
       expect(farmInfo.stakeMint).to.deep.eq(farm.stakeMint);
       expect(farmInfo.stakeVault).to.deep.eq(await farm.stakeVault());
-      expect(farmInfo.vestingVault).to.deep.eq(await farm.vestingVault());
 
       const stakeVault = await getAccount(
         provider.connection,
         farmInfo.stakeVault
       );
-      const vestingVault = await getAccount(
-        provider.connection,
-        farmInfo.stakeVault
-      );
-      expect(stakeVault.mint).to.deep.eq(vestingVault.mint);
       expect(stakeVault.mint).to.deep.eq(farm.stakeMint);
-      expect(stakeVault.owner).to.deep.eq(vestingVault.owner);
       expect(stakeVault.owner).to.deep.eq((await farm.signer())[0]);
       expect(stakeVault.closeAuthority).to.be.null;
-      expect(vestingVault.closeAuthority).to.be.null;
       expect(stakeVault.isInitialized).to.be.true;
-      expect(vestingVault.isInitialized).to.be.true;
 
       expect(farmInfo.harvests).to.be.lengthOf(10);
       (farmInfo.harvests as any[]).forEach((h) => {
@@ -104,6 +88,8 @@ export function test() {
           expect(startedAt.slot.toNumber()).to.eq(0);
         }
       );
+
+      expect(farmInfo.minSnapshotWindowSlots.toNumber()).to.eq(0);
     });
   });
 }

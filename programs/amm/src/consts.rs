@@ -25,4 +25,4 @@ pub const SNAPSHOTS_LEN: usize = 1000;
 /// There are ~2 slots per second. The
 /// [`crate::endpoints::farming::take_snapshot`] endpoint is available for a
 /// single [`crate::models::Farm`] at most this often.
-pub const MIN_SNAPSHOT_WINDOW_SLOTS: usize = 2 * 3600;
+pub const MIN_SNAPSHOT_WINDOW_SLOTS: u64 = 2 * 3600;

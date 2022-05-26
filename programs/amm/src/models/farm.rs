@@ -23,13 +23,6 @@ pub struct Farm {
     ///
     /// This is derivable from the farm's pubkey as a seed.
     pub stake_vault: Pubkey,
-    /// Is also the same mint as `stake_vault`, ie. `stake_mint`, but we use
-    /// this vault to store tokens which have been staked in the present
-    /// snapshot window. The tokens from this vault are transferred to
-    /// `stake_vault` on [`crate::endpoints::farming::take_snapshot`].
-    ///
-    /// This is derivable from the farm's pubkey as a seed.
-    pub vesting_vault: Pubkey,
     /// List of different harvest mints with configuration of how many tokens
     /// are released per slot.
     ///
@@ -43,6 +36,14 @@ pub struct Farm {
     /// Stores snapshots of the amount of total staked tokens and changes to
     /// `ρ`.
     pub snapshots: Snapshots,
+    /// Enforces a minimum amount of timespan between snapshots, thus ensures
+    /// that the ring_buffer in total has a minimum amount of time ellapsed.
+    /// When a Farm is initiated, min_snapshot_window_slots is defaulted to
+    /// zero. When zero, the endpoint take_snapshots will set this contraint
+    /// to the default value [`consts::MIN_SNAPSHOT_WINDOW_SLOTS`].
+    /// This field is configurable via the endpoint set_min_snapshot_window
+    /// which can be called by the admin.
+    pub min_snapshot_window_slots: u64,
 }
 
 /// # Important
@@ -112,7 +113,7 @@ pub struct Snapshots {
     ///
     /// # Note
     /// Len must match [`consts::SNAPSHOTS_LEN`].
-    pub ring_buffer: [Snapshot; 1_000],
+    pub ring_buffer: [Snapshot; 1000],
 }
 
 /// Defines a snapshot window.
@@ -135,7 +136,6 @@ impl Default for Snapshots {
 impl Farm {
     pub const SIGNER_PDA_PREFIX: &'static [u8; 6] = b"signer";
     pub const STAKE_VAULT_PREFIX: &'static [u8; 11] = b"stake_vault";
-    pub const VESTING_VAULT_PREFIX: &'static [u8; 13] = b"vesting_vault";
 }
 
 impl Harvest {
@@ -185,6 +185,71 @@ impl Farm {
     pub fn latest_snapshot(farm: &cell::Ref<Farm>) -> Snapshot {
         farm.snapshots.ring_buffer[farm.snapshots.ring_buffer_tip as usize]
     }
+
+    /// This method contains the core logic of the take_snapshot endpoint.
+    /// The method is called in the handle function of the endpoint.
+    /// It writes current stake_vault amount along with the current slot
+    /// to the snapshot positioned in the next ring_buffer_tip.
+    pub fn take_snapshot(
+        &mut self,
+        current_slot: Slot,
+        stake_vault: TokenAmount,
+    ) -> Result<()> {
+        // When the farm is initialised, farm.min_snapshot_window_slots is set
+        // to zero If the admin does not change this value the program
+        // defaults the minimum snapshot window slots to the default
+        // value
+        let min_snapshot_window_slots = if self.min_snapshot_window_slots == 0 {
+            consts::MIN_SNAPSHOT_WINDOW_SLOTS
+        } else {
+            self.min_snapshot_window_slots
+        };
+
+        let mut snapshots = &mut self.snapshots;
+
+        // The slot in which the last snapshot was taken
+        let last_snapshot_slot = snapshots.ring_buffer
+            [(snapshots.ring_buffer_tip as usize)]
+            .started_at
+            .slot;
+
+        // Assert that sufficient time as passed
+        if current_slot.slot < last_snapshot_slot + min_snapshot_window_slots {
+            return Err(error!(
+                AmmError::InsufficientSlotTimeSinceLastSnapshot
+            ));
+        }
+
+        // Set snapshot ring buffer tip to next
+        // When the farm is initialised, the ring_buffer_tip is defaulted to
+        // zero. This means that the first in the first iteration of the
+        // ring_buffer the new snapshot elements are recorded
+        // from the index 1 onwards. Only when the tip reaches the max value and
+        // it resets to 0 that the snapshot elements start being
+        // recorded from  index 0 onwards.
+        let is_tip_last_index = snapshots.ring_buffer_tip as usize
+            == snapshots.ring_buffer.len() - 1;
+
+        snapshots.ring_buffer_tip = if is_tip_last_index {
+            0
+        } else {
+            snapshots.ring_buffer_tip + 1
+        };
+
+        // Write data to the to the buffer
+        let tip = snapshots.ring_buffer_tip as usize;
+
+        snapshots.ring_buffer[tip] = Snapshot {
+            staked: TokenAmount {
+                amount: stake_vault.amount,
+            },
+            started_at: Slot {
+                slot: current_slot.slot,
+            },
+        };
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -219,7 +284,7 @@ mod tests {
     fn it_has_stable_size() {
         let farm = Farm::default();
 
-        assert_eq!(8 + std::mem::size_of_val(&farm), 18_384);
+        assert_eq!(8 + std::mem::size_of_val(&farm), 18_360);
     }
 
     #[test]
@@ -385,5 +450,32 @@ mod tests {
                 started_at: Slot::new(20),
             }
         );
+    }
+
+    #[test]
+    fn it_takes_snapshot() {
+        let mut farm = Farm::default();
+        farm.min_snapshot_window_slots = 1;
+
+        let stake_vault_amount = 10;
+        let current_slot = 5;
+
+        assert_eq!(farm.snapshots.ring_buffer_tip, 0);
+
+        let _result = farm.take_snapshot(
+            Slot::new(current_slot),
+            TokenAmount::new(stake_vault_amount),
+        );
+
+        // After take_snapshot is called the tip should
+        // move from 0 to 1
+        assert_eq!(farm.snapshots.ring_buffer_tip, 1);
+
+        assert_eq!(
+            farm.snapshots.ring_buffer[1].staked,
+            TokenAmount { amount: 10 }
+        );
+
+        assert_eq!(farm.snapshots.ring_buffer[1].started_at, Slot { slot: 5 });
     }
 }

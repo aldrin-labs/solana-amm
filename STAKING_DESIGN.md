@@ -149,17 +149,13 @@ harvest continuously. Farmers had to wait until the a snapshot was taken.
 
 The claim logic is split into two parts. First part, as described above, uses
 the snapshot buffer. The second part calculates harvest _since_ the last
-snapshot slot, ie. in the open snapshot window.
-
-Along with `V` (stake vault), there is a second vault `V'` (vesting vault). `V`
-is being periodically snapshoted. `V'` is the target of deposit of any newly
-staked tokens. When a snapshot is taken, we transfer all funds from `V'` to `V`
-and thereby create a constant _total volume_ for the upcoming snapshot window.
-That allows us to calculate a predictable share for each user, because all
-claims are going to be divided by the same total. We can safely ignore
-withdrawals, because they don't overshoot our expectations in terms of harvest
-claimed. This mechanism guarantees that in each snapshot window we distribute
-at most `l * ρ` tokens (where `l` is snapshot window length in slots.)
+snapshot slot, ie. in the open snapshot window. We use the last snapshot total
+staked amount as the _total volume_ for the upcoming snapshot window. That
+allows us to calculate a predictable share for each user, because all claims
+are going to be divided by the same total. We can safely ignore withdrawals,
+because they don't overshoot our expectations in terms of harvest claimed. This
+mechanism guarantees that in each snapshot window we distribute at most `l * ρ`
+tokens (where `l` is snapshot window length in slots.)
 
 An issue is that farmers aren't eligible for harvest at all for some period of
 time, more specifically until the current window ends. We call this the vesting
@@ -200,8 +196,6 @@ Back to the farm accounts. With each `F` we associate:
   liquidity and swapping; _(2)_ farming with which this document is concerned;
 
 - a _stake vault `V`_;
-
-- a _vesting vault `V'`_;
 
 - a _snapshot ring buffer_.
 

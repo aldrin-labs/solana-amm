@@ -51,4 +51,18 @@ pub mod amm {
             harvest_mint,
         )
     }
+
+    pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
+        endpoints::farming::take_snapshot::handle(ctx)
+    }
+
+    pub fn set_min_snapshot_window(
+        ctx: Context<SetMinSnapshotWindow>,
+        min_snapshot_window_slots: u64,
+    ) -> Result<()> {
+        endpoints::farming::set_min_snapshot_window::handle(
+            ctx,
+            min_snapshot_window_slots,
+        )
+    }
 }
