@@ -18,7 +18,7 @@ use std::iter;
 #[derive(Accounts)]
 #[instruction(farm_signer_bump_seed: u8)]
 pub struct AddHarvest<'info> {
-    /// THe ownership over the farm is checked in the [`handle`] function.
+    /// The ownership over the farm is checked in the [`handle`] function.
     #[account(mut)]
     pub admin: Signer<'info>,
     /// # Important

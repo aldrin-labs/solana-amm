@@ -35,3 +35,7 @@ export async function airdrop(to: PublicKey, amount: number = 100_000_000_000) {
     "confirmed"
   );
 }
+
+export async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}

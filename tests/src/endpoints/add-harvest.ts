@@ -125,6 +125,7 @@ export function test() {
         expect(value.amount.toNumber()).to.eq(0);
         expect(at.slot.toNumber()).to.eq(0);
       });
+
       expect(
         harvests[1].tokensPerSlot[0].at.slot.toNumber()
       ).to.be.approximately(currentSlot, 3);
@@ -136,7 +137,10 @@ export function test() {
         expect(at.slot.toNumber()).to.eq(0);
       });
 
-      // and all the other harvests should be default too, we only added 2
+      delete farmInfo.harvests;
+      delete farmInfoBefore.harvests;
+      expect(farmInfo).to.deep.eq(farmInfoBefore);
+
       harvests.slice(2).forEach((h) => {
         expect(h.mint).to.deep.eq(PublicKey.default);
         expect(h.vault).to.deep.eq(PublicKey.default);

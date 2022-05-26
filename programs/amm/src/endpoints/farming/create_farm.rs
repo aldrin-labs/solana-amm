@@ -33,19 +33,6 @@ pub struct CreateFarm<'info> {
         bump,
     )]
     pub stake_vault: AccountInfo<'info>,
-    /// CHECK: UNSAFE_CODES.md#token
-    #[account(
-        init,
-        payer = admin,
-        space = TokenAccount::LEN,
-        owner = token_program.key(),
-        seeds = [
-            Farm::VESTING_VAULT_PREFIX,
-            farm.key().as_ref(),
-        ],
-        bump,
-    )]
-    pub vesting_vault: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     /// CHECK: UNSAFE_CODES.md#token
@@ -63,44 +50,34 @@ pub fn handle(
     farm.admin = accounts.admin.key();
     farm.stake_mint = accounts.stake_mint.key();
     farm.stake_vault = accounts.stake_vault.key();
-    farm.vesting_vault = accounts.vesting_vault.key();
 
-    msg!("Initializing vaults");
+    msg!("Initializing stake vault");
 
     let signer_seed = &[
         Farm::SIGNER_PDA_PREFIX,
         &accounts.farm.key().to_bytes()[..],
         &[farm_signer_bump_seed],
     ];
-
-    enum Vault {
-        Stake,
-        Vesting,
-    }
-
-    let init_vault = |vault: Vault| {
-        token::initialize_account(
-            CpiContext::new(
-                accounts.token_program.to_account_info(),
-                token::InitializeAccount {
-                    mint: accounts.stake_mint.to_account_info(),
-                    authority: accounts.farm_signer_pda.to_account_info(),
-                    rent: accounts.rent.to_account_info(),
-                    // it's easier to match this via an enum than to annotate
-                    // lifetimes
-                    account: if matches!(vault, Vault::Stake) {
-                        accounts.stake_vault.to_account_info()
-                    } else {
-                        accounts.vesting_vault.to_account_info()
-                    },
-                },
-            )
+    token::initialize_account(
+        accounts
+            .as_init_stake_vault_context()
             .with_signer(&[&signer_seed[..]]),
-        )
-    };
-
-    init_vault(Vault::Stake)?;
-    init_vault(Vault::Vesting)?;
+    )?;
 
     Ok(())
+}
+
+impl<'info> CreateFarm<'info> {
+    pub fn as_init_stake_vault_context(
+        &self,
+    ) -> CpiContext<'_, '_, '_, 'info, token::InitializeAccount<'info>> {
+        let cpi_accounts = token::InitializeAccount {
+            mint: self.stake_mint.to_account_info(),
+            authority: self.farm_signer_pda.to_account_info(),
+            rent: self.rent.to_account_info(),
+            account: self.stake_vault.to_account_info(),
+        };
+        let cpi_program = self.token_program.to_account_info();
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
 }

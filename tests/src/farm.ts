@@ -1,8 +1,7 @@
 import { amm, payer, provider } from "./helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { createAccount, createMint } from "@solana/spl-token";
+import { createAccount, createMint, transfer, mintTo } from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
-import { TOKEN_PROGRAM_ID } from "@project-serum/anchor/dist/cjs/utils/token";
 
 export interface InitFarmArgs {
   adminKeypair: Keypair;
@@ -13,7 +12,6 @@ export interface InitFarmArgs {
   skipCreateFarm: boolean;
   skipKeypairSignature: boolean;
   stakeVault: PublicKey;
-  vestingVault: PublicKey;
   stakeMint: PublicKey;
 }
 
@@ -34,6 +32,20 @@ export interface RemoveHarvestArgs {
   pda: PublicKey;
   skipAdminSignature: boolean;
   adminHarvestWallet: PublicKey;
+}
+
+export interface TakeSnapshotArgs {
+  caller: Keypair;
+  farm: PublicKey;
+  stakeMint: PublicKey;
+  stakeVault: PublicKey;
+  clock: PublicKey;
+}
+
+export interface SetMinSnapshotWindowArgs {
+  admin: Keypair;
+  farm: PublicKey;
+  skipAdminSignature: boolean;
 }
 
 export class Farm {
@@ -84,16 +96,6 @@ export class Farm {
         return pda;
       })());
 
-    const vestingVault =
-      input.vestingVault ??
-      (await (async () => {
-        const [pda, _] = await PublicKey.findProgramAddress(
-          [Buffer.from("vesting_vault"), farmKeypair.publicKey.toBytes()],
-          amm.programId
-        );
-        return pda;
-      })());
-
     const signers = [];
     if (!skipAdminSignature) {
       signers.push(adminKeypair);
@@ -117,7 +119,6 @@ export class Farm {
         farmSignerPda: pda,
         stakeMint,
         stakeVault,
-        vestingVault,
       })
       .signers(signers)
       .preInstructions(preInstructions)
@@ -133,14 +134,6 @@ export class Farm {
   public async stakeVault(): Promise<PublicKey> {
     const [pda, _] = await PublicKey.findProgramAddress(
       [Buffer.from("stake_vault"), this.id.toBytes()],
-      amm.programId
-    );
-    return pda;
-  }
-
-  public async vestingVault(): Promise<PublicKey> {
-    const [pda, _] = await PublicKey.findProgramAddress(
-      [Buffer.from("vesting_vault"), this.id.toBytes()],
       amm.programId
     );
     return pda;
@@ -258,5 +251,89 @@ export class Farm {
       .rpc();
 
     return adminHarvestWallet;
+  }
+
+  public async takeSnapshot(input: Partial<TakeSnapshotArgs> = {}) {
+    const farm = input.farm ?? this.id;
+
+    const stakeVault = input.stakeVault ?? (await this.stakeVault());
+
+    await amm.methods
+      .takeSnapshot()
+      .accounts({
+        farm: farm,
+        stakeVault: stakeVault,
+      })
+      .rpc();
+  }
+
+  // To test take_snapshot endpoint to see if the snapshots store the correct amount staked tokens
+  // we first need to transfer tokens to the stakeVault
+  public async transferToStakeVault(
+    depositorWallet: PublicKey,
+    amount: number,
+    authority: PublicKey = this.admin.publicKey
+  ) {
+    const stakeVault = await this.stakeVault();
+
+    await transfer(
+      provider.connection,
+      payer,
+      depositorWallet, // source
+      stakeVault, // destination
+      authority, // owner
+      amount // amount
+    );
+  }
+
+  public async setMinSnapshotWindow(
+    setMinSnapshotWindow: number,
+    input: Partial<SetMinSnapshotWindowArgs> = {}
+  ) {
+    const farm = input.farm ?? this.id;
+    const admin = input.admin ?? this.admin;
+    const skipAdminSignature = input.skipAdminSignature ?? false;
+
+    const signers = [];
+    if (!skipAdminSignature) {
+      signers.push(admin);
+    }
+
+    await amm.methods
+      .setMinSnapshotWindow(new BN(setMinSnapshotWindow))
+      .accounts({
+        admin: admin.publicKey,
+        farm: farm,
+      })
+      .signers(signers)
+      .rpc();
+  }
+
+  public async createStakeWallet(
+    withAmount: number = 0,
+    owner: PublicKey = this.admin.publicKey
+  ) {
+    const stakeWallet = await createAccount(
+      provider.connection,
+      payer,
+      this.stakeMint,
+      owner,
+      // optional keypair make sure different account is created
+      // each time
+      Keypair.generate()
+    );
+
+    if (withAmount > 0) {
+      await mintTo(
+        provider.connection,
+        payer,
+        this.stakeMint,
+        stakeWallet,
+        owner,
+        withAmount
+      );
+    }
+
+    return stakeWallet;
   }
 }
