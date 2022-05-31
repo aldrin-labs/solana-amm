@@ -17,6 +17,12 @@ pub enum AmmError {
     FarmAdminMismatch,
     #[msg("Insufficient slot time has passed since last snapshot was taken")]
     InsufficientSlotTimeSinceLastSnapshot,
+    #[msg("Invalid slot as time has already passed since given slot")]
+    InvalidSlot,
+    #[msg("None of existing harvest mints  possedes the public key")]
+    UnknownHarvestMintPubKey,
+    #[msg("The limit of configuration updates has been already exceeded within the snapshot history")]
+    ConfigurationUpdateLimitExceeded,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {

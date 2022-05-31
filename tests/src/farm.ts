@@ -56,6 +56,12 @@ export interface SetFarmOwner {
   skipNewAdminSignature: boolean;
 }
 
+export interface SetTokensPerSlot {
+  admin: Keypair;
+  farm: PublicKey;
+  skipAdminSignature: boolean;
+}
+
 export class Farm {
   public get id(): PublicKey {
     return this.keypair.publicKey;
@@ -366,6 +372,36 @@ export class Farm {
         admin: admin.publicKey,
         farm: farm,
         newFarmAdmin: newFarmAdmin.publicKey,
+      })
+      .signers(signers)
+      .rpc();
+  }
+
+  public async setTokensPerSlot(
+    harvestMint: PublicKey,
+    validFromSlot: number = 0,
+    tokensPerSlot: number = 0,
+    input: Partial<SetTokensPerSlot> = {}
+  ): Promise<void> {
+    const admin = input.admin ?? this.admin;
+    const farm = input.farm ?? this.id;
+    const skipAdminSignature = input.skipAdminSignature ?? false;
+
+    const signers = [];
+
+    if (!skipAdminSignature) {
+      signers.push(admin);
+    }
+
+    await amm.methods
+      .setTokensPerSlot(
+        harvestMint,
+        { slot: new BN(validFromSlot) },
+        { amount: new BN(tokensPerSlot) }
+      )
+      .accounts({
+        admin: admin.publicKey,
+        farm,
       })
       .signers(signers)
       .rpc();

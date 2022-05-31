@@ -7,6 +7,18 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.5.2] - 2022-05-30
+
+### Added
+
+- Endpoint for set tokens per slot configuration parameter.
+- Method on `Farm` model called `set_tokens_per_slot` where the
+  core logic of the `set_tokens_per_slot` endpoint resides. It
+  allows admin of the farm to be able to change the number of
+  distributed tokens per slot, at most a fixed finite number
+  of times
+- Added method `oldest_snapshot` for `Farm`.
+
 ## [0.5.1] - 2022-05-27
 
 ### Added
