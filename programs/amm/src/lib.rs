@@ -52,6 +52,10 @@ pub mod amm {
         )
     }
 
+    pub fn set_farm_owner(ctx: Context<SetFarmOwner>) -> Result<()> {
+        endpoints::set_farm_owner::handle(ctx)
+    }
+
     pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
         endpoints::farming::take_snapshot::handle(ctx)
     }

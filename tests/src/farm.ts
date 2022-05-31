@@ -48,6 +48,14 @@ export interface SetMinSnapshotWindowArgs {
   skipAdminSignature: boolean;
 }
 
+export interface SetFarmOwner {
+  admin: Keypair;
+  farm: PublicKey;
+  newFarmAdmin: Keypair;
+  skipAdminSignature: boolean;
+  skipNewAdminSignature: boolean;
+}
+
 export class Farm {
   public get id(): PublicKey {
     return this.keypair.publicKey;
@@ -335,5 +343,31 @@ export class Farm {
     }
 
     return stakeWallet;
+  }
+
+  public async setFarmOwner(input: Partial<SetFarmOwner> = {}) {
+    const admin = input.admin ?? this.admin;
+    const farm = input.farm ?? this.id;
+    const newFarmAdmin = input.newFarmAdmin ?? Keypair.generate();
+    const skipAdminSignature = input.skipAdminSignature ?? false;
+    const skipNewAdminSignature = input.skipNewAdminSignature ?? false;
+
+    const signers = [];
+    if (!skipAdminSignature) {
+      signers.push(admin);
+    }
+    if (!skipNewAdminSignature) {
+      signers.push(newFarmAdmin);
+    }
+
+    await amm.methods
+      .setFarmOwner()
+      .accounts({
+        admin: admin.publicKey,
+        farm: farm,
+        newFarmAdmin: newFarmAdmin.publicKey,
+      })
+      .signers(signers)
+      .rpc();
   }
 }
