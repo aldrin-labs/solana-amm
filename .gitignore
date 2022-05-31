@@ -7,3 +7,4 @@ node_modules
 test-ledger
 grcov.log
 .env
+package-lock.json
