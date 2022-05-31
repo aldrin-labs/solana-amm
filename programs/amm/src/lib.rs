@@ -56,6 +56,20 @@ pub mod amm {
         endpoints::set_farm_owner::handle(ctx)
     }
 
+    pub fn set_tokens_per_slot(
+        ctx: Context<SetTokensPerSlot>,
+        harvest_mint: Pubkey,
+        valid_from_slot: Slot,
+        tokens_per_slot: TokenAmount,
+    ) -> Result<()> {
+        endpoints::farming::set_tokens_per_slot::handle(
+            ctx,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        )
+    }
+
     pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
         endpoints::farming::take_snapshot::handle(ctx)
     }
@@ -70,17 +84,46 @@ pub mod amm {
         )
     }
 
-    pub fn set_tokens_per_slot(
-        ctx: Context<SetTokensPerSlot>,
-        harvest_mint: Pubkey,
-        valid_from_slot: Slot,
-        tokens_per_slot: TokenAmount,
+    pub fn create_farmer(ctx: Context<CreateFarmer>) -> Result<()> {
+        endpoints::farming::create_farmer::handle(ctx)
+    }
+
+    pub fn close_farmer(ctx: Context<CloseFarmer>) -> Result<()> {
+        endpoints::farming::close_farmer::handle(ctx)
+    }
+
+    pub fn start_farming(
+        ctx: Context<StartFarming>,
+        stake: TokenAmount,
     ) -> Result<()> {
-        endpoints::farming::set_tokens_per_slot::handle(
+        endpoints::farming::start_farming::handle(ctx, stake)
+    }
+
+    pub fn stop_farming(
+        ctx: Context<StopFarming>,
+        farm_signer_bump_seed: u8,
+        unstake: TokenAmount,
+    ) -> Result<()> {
+        endpoints::farming::stop_farming::handle(
             ctx,
-            harvest_mint,
-            valid_from_slot,
-            tokens_per_slot,
+            farm_signer_bump_seed,
+            unstake,
+        )
+    }
+
+    pub fn update_eligible_harvest(
+        ctx: Context<UpdateEligibleHarvest>,
+    ) -> Result<()> {
+        endpoints::farming::update_eligible_harvest::handle(ctx)
+    }
+
+    pub fn claim_eligible_harvest(
+        ctx: Context<ClaimEligibleHarvest>,
+        farm_signer_bump_seed: u8,
+    ) -> Result<()> {
+        endpoints::farming::claim_eligible_harvest::handle(
+            ctx,
+            farm_signer_bump_seed,
         )
     }
 }
