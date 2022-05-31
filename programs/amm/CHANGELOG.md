@@ -6,6 +6,15 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2022-05-31
+
+### Added
+
+- Endpoint accounts structures for `create_farmer`, `close_farmer`,
+  `start_farming`, `stop_farming`, `update_eligible_harvest` and
+  `claim_eligible_harvest`. The endpoints are currently no-ops, logic shall be
+  added in upcoming MRs. The accounts structures enabled frontend to begin
+  their implementation earlier.
 
 ## [0.5.2] - 2022-05-30
 

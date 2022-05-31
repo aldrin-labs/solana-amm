@@ -154,7 +154,8 @@ impl Farm {
             .ok_or(AmmError::UnknownHarvestMintPubKey)?;
 
         let latest_tokens_per_slot_history = &mut harvest.tokens_per_slot[0];
-        // if the latest tokens per slot is at a future slot, then we update its value
+        // if the latest tokens per slot is at a future slot, then we update its
+        // value
         if latest_tokens_per_slot_history.at.slot >= current_slot.slot {
             *latest_tokens_per_slot_history = TokensPerSlotHistory {
                 at: valid_from_slot,
@@ -163,9 +164,9 @@ impl Farm {
             return Ok(());
         }
 
-        // we know a priori that hasvest: TokensPerSlotHistory was at least already
-        // initialized as a fixed number length array of default elements
-        // so unwrap `.last()` is safe
+        // we know a priori that hasvest: TokensPerSlotHistory was at least
+        // already initialized as a fixed number length array of default
+        // elements so unwrap `.last()` is safe
         let oldest_token_per_slot_history =
             harvest.tokens_per_slot.last().unwrap();
         // if the oldest tokens per slot is within the current snapshot history,
@@ -178,9 +179,10 @@ impl Farm {
             return Err(error!(AmmError::ConfigurationUpdateLimitExceeded));
         }
 
-        // At this step, we know that the oldest token slot history is strictly less
-        // than the oldest snapshot slot. In this case, we update the `harvests` array
-        // to have a new harvest with token slot history with slot at `valid_from_slot`
+        // At this step, we know that the oldest token slot history is strictly
+        // less than the oldest snapshot slot. In this case, we update
+        // the `harvests` array to have a new harvest with token slot
+        // history with slot at `valid_from_slot`
         harvest.tokens_per_slot.rotate_right(1);
 
         // get new latest token per slot history
@@ -259,7 +261,7 @@ impl Farm {
     /// to the snapshot positioned in the next ring_buffer_tip.
     pub fn take_snapshot(
         &mut self,
-        current_slot: Slot,
+        clock: Slot,
         stake_vault: TokenAmount,
     ) -> Result<()> {
         // When the farm is initialised, farm.min_snapshot_window_slots is set
@@ -281,7 +283,7 @@ impl Farm {
             .slot;
 
         // Assert that sufficient time as passed
-        if current_slot.slot < last_snapshot_slot + min_snapshot_window_slots {
+        if clock.slot < last_snapshot_slot + min_snapshot_window_slots {
             return Err(error!(
                 AmmError::InsufficientSlotTimeSinceLastSnapshot
             ));
@@ -310,9 +312,7 @@ impl Farm {
             staked: TokenAmount {
                 amount: stake_vault.amount,
             },
-            started_at: Slot {
-                slot: current_slot.slot,
-            },
+            started_at: clock,
         };
 
         Ok(())
@@ -580,8 +580,8 @@ mod tests {
 
     #[test]
     fn set_tokens_per_slot_when_harvest_schedule_in_future() -> Result<()> {
-        // asserts that every schedule configuration to tokens per slot parameter
-        // is sucessful and does not change previous harvests
+        // asserts that every schedule configuration to tokens per slot
+        // parameter is sucessful and does not change previous harvests
 
         let mut farm = Farm::default();
 
@@ -773,8 +773,9 @@ mod tests {
     #[test]
     fn set_tokens_per_slot_successfull_when_oldest_snapshot_after_oldest_token_slot(
     ) {
-        // asserts that changes in tokens per slot configuration is sucessful if last
-        // harvest parameter was not in future and the limit has not be exceeded
+        // asserts that changes in tokens per slot configuration is sucessful if
+        // last harvest parameter was not in future and the limit has
+        // not be exceeded
 
         let mut farm = Farm::default();
 

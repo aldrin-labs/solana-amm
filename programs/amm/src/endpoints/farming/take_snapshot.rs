@@ -26,10 +26,8 @@ pub fn handle(ctx: Context<TakeSnapshot>) -> Result<()> {
         )));
     }
 
-    let current_slot = Slot::current()?.slot;
-
     farm.take_snapshot(
-        Slot::new(current_slot),
+        Slot::current()?,
         TokenAmount::new(accounts.stake_vault.amount),
     )?;
 

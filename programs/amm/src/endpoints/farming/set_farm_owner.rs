@@ -1,6 +1,6 @@
-//! Sets a new farm owner. A [`Farm`] is administrated by an owner: An user pubkey
-//! which has special permissions, like setting certain protocol parameters.
-//!
+//! Sets a new farm owner. A [`Farm`] is administrated by an owner: An user
+//! pubkey which has special permissions, like setting certain protocol
+//! parameters.
 
 use crate::prelude::*;
 
