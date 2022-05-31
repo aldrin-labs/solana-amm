@@ -69,4 +69,18 @@ pub mod amm {
             min_snapshot_window_slots,
         )
     }
+
+    pub fn set_tokens_per_slot(
+        ctx: Context<SetTokensPerSlot>,
+        harvest_mint: Pubkey,
+        valid_from_slot: Slot,
+        tokens_per_slot: TokenAmount,
+    ) -> Result<()> {
+        endpoints::farming::set_tokens_per_slot::handle(
+            ctx,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        )
+    }
 }

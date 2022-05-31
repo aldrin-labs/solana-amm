@@ -1,7 +1,7 @@
 //! Admin's representation of rewards and history of the system.
 
+use crate::models::{Slot, TokenAmount};
 use crate::prelude::*;
-use std::cell;
 
 /// To create a user incentive for token possession, we distribute time
 /// dependent rewards. A farmer stakes tokens of a mint `S`, ie. they lock them
@@ -34,7 +34,8 @@ pub struct Farm {
     /// Len must match [`consts::MAX_HARVEST_MINTS`].
     pub harvests: [Harvest; 10],
     /// Stores snapshots of the amount of total staked tokens and changes to
-    /// `ρ`.
+    /// `ρ`. Note that [`Farm`] is in a many-to-one relationship to a
+    /// [`History`].
     pub snapshots: Snapshots,
     /// Enforces a minimum amount of timespan between snapshots, thus ensures
     /// that the ring_buffer in total has a minimum amount of time ellapsed.
@@ -72,7 +73,7 @@ pub struct Harvest {
     /// rotation period. See the design docs for more info.
     ///
     /// # Important
-    /// This array is ordered by the `TokensPerSlotHistory.since.slot` integer
+    /// This array is ordered by the `TokensPerSlotHistory.at.slot` integer
     /// DESC.
     ///
     /// # Note
@@ -136,6 +137,61 @@ impl Default for Snapshots {
 impl Farm {
     pub const SIGNER_PDA_PREFIX: &'static [u8; 6] = b"signer";
     pub const STAKE_VAULT_PREFIX: &'static [u8; 11] = b"stake_vault";
+
+    pub fn set_tokens_per_slot(
+        &mut self,
+        oldest_snapshot: Snapshot,
+        harvest_mint: Pubkey,
+        valid_from_slot: Slot,
+        tokens_per_slot: TokenAmount,
+    ) -> Result<()> {
+        let current_slot = Slot::current()?;
+
+        let harvest = self
+            .harvests
+            .iter_mut()
+            .find(|h| h.mint == harvest_mint)
+            .ok_or(AmmError::UnknownHarvestMintPubKey)?;
+
+        let latest_tokens_per_slot_history = &mut harvest.tokens_per_slot[0];
+        // if the latest tokens per slot is at a future slot, then we update its value
+        if latest_tokens_per_slot_history.at.slot >= current_slot.slot {
+            *latest_tokens_per_slot_history = TokensPerSlotHistory {
+                at: valid_from_slot,
+                value: tokens_per_slot,
+            };
+            return Ok(());
+        }
+
+        // we know a priori that hasvest: TokensPerSlotHistory was at least already
+        // initialized as a fixed number length array of default elements
+        // so unwrap `.last()` is safe
+        let oldest_token_per_slot_history =
+            harvest.tokens_per_slot.last().unwrap();
+        // if the oldest tokens per slot is within the current snapshot history,
+        // we are unable to update its value, the admin already passed the
+        // allowed max number of possible configuration updates
+        if oldest_token_per_slot_history.at.slot != 0
+            && oldest_token_per_slot_history.at.slot
+                >= oldest_snapshot.started_at.slot
+        {
+            return Err(error!(AmmError::ConfigurationUpdateLimitExceeded));
+        }
+
+        // At this step, we know that the oldest token slot history is strictly less
+        // than the oldest snapshot slot. In this case, we update the `harvests` array
+        // to have a new harvest with token slot history with slot at `valid_from_slot`
+        harvest.tokens_per_slot.rotate_right(1);
+
+        // get new latest token per slot history
+        let new_latest_token_per_slot_history = TokensPerSlotHistory {
+            value: tokens_per_slot,
+            at: valid_from_slot,
+        };
+        harvest.tokens_per_slot[0] = new_latest_token_per_slot_history;
+
+        Ok(())
+    }
 }
 
 impl Harvest {
@@ -181,9 +237,20 @@ impl Harvest {
 }
 
 impl Farm {
-    /// Use use [`cell::Ref`] because farm is too large to fit on stack.
-    pub fn latest_snapshot(farm: &cell::Ref<Farm>) -> Snapshot {
-        farm.snapshots.ring_buffer[farm.snapshots.ring_buffer_tip as usize]
+    pub fn latest_snapshot(&self) -> Snapshot {
+        self.snapshots.ring_buffer[self.snapshots.ring_buffer_tip as usize]
+    }
+
+    pub fn oldest_snapshot(&self) -> Snapshot {
+        let oldest_snapshot_index = if self.snapshots.ring_buffer_tip as usize
+            != consts::SNAPSHOTS_LEN - 1
+        {
+            self.snapshots.ring_buffer_tip as usize + 1
+        } else {
+            0
+        };
+
+        self.snapshots.ring_buffer[oldest_snapshot_index]
     }
 
     /// This method contains the core logic of the take_snapshot endpoint.
@@ -255,6 +322,7 @@ impl Farm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::utils;
 
     #[test]
     fn it_matches_harvest_tokens_per_slot_with_const() {
@@ -432,10 +500,7 @@ mod tests {
     #[test]
     fn it_returns_farm_latest_snapshot() {
         let farm = Farm::default();
-        assert_eq!(
-            Farm::latest_snapshot(&cell::RefCell::new(farm).borrow()),
-            Snapshot::default()
-        );
+        assert_eq!(farm.latest_snapshot(), Snapshot::default());
 
         let mut farm = Farm::default();
         farm.snapshots.ring_buffer_tip = 10;
@@ -444,12 +509,46 @@ mod tests {
             started_at: Slot::new(20),
         };
         assert_eq!(
-            Farm::latest_snapshot(&cell::RefCell::new(farm).borrow()),
+            farm.latest_snapshot(),
             Snapshot {
                 staked: TokenAmount::new(10),
                 started_at: Slot::new(20),
             }
         );
+    }
+
+    #[test]
+    fn it_returns_farm_oldest_snapshot() {
+        let farm = Farm::default();
+        assert_eq!(farm.oldest_snapshot(), Snapshot::default());
+
+        let mut farm = Farm::default();
+        let mut current_tip: usize;
+
+        for oldest_snapshot_tip in 1..(consts::SNAPSHOTS_LEN as u64) {
+            farm.snapshots.ring_buffer_tip = oldest_snapshot_tip - 1;
+
+            current_tip = oldest_snapshot_tip as usize;
+
+            // oldest snapshot tip passes the last position of the array,
+            // we set it to 0
+            if oldest_snapshot_tip == consts::SNAPSHOTS_LEN as u64 {
+                current_tip = 0;
+            }
+
+            farm.snapshots.ring_buffer[current_tip] = Snapshot {
+                staked: TokenAmount::new(10),
+                started_at: Slot::new(20 + oldest_snapshot_tip),
+            };
+
+            assert_eq!(
+                farm.oldest_snapshot(),
+                Snapshot {
+                    staked: TokenAmount::new(10),
+                    started_at: Slot::new(20 + oldest_snapshot_tip),
+                }
+            );
+        }
     }
 
     #[test]
@@ -477,5 +576,262 @@ mod tests {
         );
 
         assert_eq!(farm.snapshots.ring_buffer[1].started_at, Slot { slot: 5 });
+    }
+
+    #[test]
+    fn set_tokens_per_slot_when_harvest_schedule_in_future() -> Result<()> {
+        // asserts that every schedule configuration to tokens per slot parameter
+        // is sucessful and does not change previous harvests
+
+        let mut farm = Farm::default();
+
+        let tokens_per_slot = TokenAmount { amount: 100 };
+        let valid_from_slot = Slot { slot: 10 }; // minimum possible
+        utils::set_clock(valid_from_slot);
+
+        let harvest = farm.harvests[0];
+        let harvest_mint = harvest.mint;
+        let oldest_snapshot = farm.oldest_snapshot();
+
+        // update harvest.tokens_per_slot first entry to be in the future
+        farm.harvests[0].tokens_per_slot[0] = TokensPerSlotHistory {
+            at: Slot { slot: 10 },
+            value: TokenAmount { amount: 10 },
+        };
+
+        // call set_tokens_per_slot method
+        farm.set_tokens_per_slot(
+            oldest_snapshot,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        )?;
+
+        assert_eq!(
+            farm.harvests[0].tokens_per_slot[0],
+            TokensPerSlotHistory {
+                at: valid_from_slot,
+                value: tokens_per_slot
+            }
+        );
+
+        for i in 1..9_usize {
+            assert_eq!(
+                harvest.tokens_per_slot[i],
+                TokensPerSlotHistory {
+                    at: Slot { slot: 0 },
+                    value: TokenAmount { amount: 0 }
+                }
+            );
+        }
+
+        let tokens_per_slot = TokenAmount { amount: 200 };
+
+        // call set_tokens_per_slot method
+        farm.set_tokens_per_slot(
+            oldest_snapshot,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        )?;
+
+        assert_eq!(
+            farm.harvests[0].tokens_per_slot[0],
+            TokensPerSlotHistory {
+                at: valid_from_slot,
+                value: tokens_per_slot
+            }
+        );
+
+        for i in 1..9_usize {
+            assert_eq!(
+                harvest.tokens_per_slot[i],
+                TokensPerSlotHistory {
+                    at: Slot { slot: 0 },
+                    value: TokenAmount { amount: 0 }
+                }
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn set_tokens_per_slot_when_past_harvest() -> Result<()> {
+        // asserts that past harvest configuration updates
+        // are successful if limit has not exceeded
+
+        let mut farm = Farm::default();
+
+        let harvest = farm.harvests[0];
+        let harvest_mint = harvest.mint;
+        let oldest_snapshot = farm.oldest_snapshot();
+
+        let mut correct_tokens_per_slot_history: [TokensPerSlotHistory; 10] =
+            [TokensPerSlotHistory::default(); 10];
+
+        for i in 1..10 {
+            let valid_from_slot = Slot { slot: i };
+            utils::set_clock(valid_from_slot);
+
+            let tokens_per_slot = TokenAmount { amount: 100 * i };
+
+            farm.set_tokens_per_slot(
+                oldest_snapshot,
+                harvest_mint,
+                valid_from_slot,
+                tokens_per_slot,
+            )?;
+
+            correct_tokens_per_slot_history.rotate_right(1);
+            correct_tokens_per_slot_history[0] = TokensPerSlotHistory {
+                at: valid_from_slot,
+                value: tokens_per_slot,
+            };
+        }
+
+        assert_eq!(
+            correct_tokens_per_slot_history,
+            farm.harvests[0].tokens_per_slot
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn set_tokens_per_slot_limit_configurations_exceeded() {
+        // asserts that in the case that tokens per slot changes
+        // has exceeded the limit, logic fails with error
+
+        let mut farm = Farm::default();
+
+        let harvest = farm.harvests[0];
+        let harvest_mint = harvest.mint;
+        let oldest_snapshot = farm.oldest_snapshot();
+
+        let valid_from_slot = Slot { slot: 15 };
+        let tokens_per_slot = TokenAmount { amount: 10 };
+
+        utils::set_clock(valid_from_slot);
+
+        farm.harvests[0].tokens_per_slot =
+            [10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(|u| TokensPerSlotHistory {
+                at: Slot { slot: u },
+                value: TokenAmount { amount: 100 * u },
+            });
+
+        let output = farm.set_tokens_per_slot(
+            oldest_snapshot,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        );
+
+        assert!(output.is_err());
+    }
+
+    #[test]
+    fn set_tokens_per_slot_configuration_limit_exceeded_second() {
+        // asserts that in the case that tokens per slot changes
+        // has exceeded the limit, logic fails with error
+
+        let mut farm = Farm::default();
+
+        let harvest = farm.harvests[0];
+        let harvest_mint = harvest.mint;
+        let oldest_snapshot = farm.oldest_snapshot();
+
+        let valid_from_slot = Slot { slot: 120 };
+        let tokens_per_slot = TokenAmount { amount: 10 };
+
+        utils::set_clock(valid_from_slot);
+
+        farm.harvests[0].tokens_per_slot =
+            [100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(|u| {
+                TokensPerSlotHistory {
+                    at: Slot { slot: u },
+                    value: TokenAmount { amount: 100 * u },
+                }
+            });
+
+        farm.snapshots.ring_buffer
+            [farm.snapshots.ring_buffer_tip as usize + 1] = Snapshot {
+            staked: TokenAmount { amount: 50 },
+            started_at: Slot { slot: 5 },
+        };
+
+        let output = farm.set_tokens_per_slot(
+            oldest_snapshot,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        );
+
+        assert!(output.is_err());
+    }
+
+    #[test]
+    fn set_tokens_per_slot_successfull_when_oldest_snapshot_after_oldest_token_slot(
+    ) {
+        // asserts that changes in tokens per slot configuration is sucessful if last
+        // harvest parameter was not in future and the limit has not be exceeded
+
+        let mut farm = Farm::default();
+
+        let harvest = farm.harvests[0];
+        let harvest_mint = harvest.mint;
+
+        let valid_from_slot = Slot { slot: 120 };
+        let tokens_per_slot = TokenAmount { amount: 10 };
+
+        utils::set_clock(valid_from_slot);
+
+        farm.harvests[0].tokens_per_slot =
+            [100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(|u| {
+                TokensPerSlotHistory {
+                    at: Slot { slot: u },
+                    value: TokenAmount { amount: 100 * u },
+                }
+            });
+
+        farm.snapshots.ring_buffer
+            [farm.snapshots.ring_buffer_tip as usize + 1] = Snapshot {
+            staked: TokenAmount { amount: 50 },
+            started_at: Slot { slot: 15 },
+        };
+
+        let oldest_snapshot = farm.oldest_snapshot();
+
+        farm.set_tokens_per_slot(
+            oldest_snapshot,
+            harvest_mint,
+            valid_from_slot,
+            tokens_per_slot,
+        )
+        .unwrap();
+
+        // we assert that the first element of the array has been updated
+        assert_eq!(
+            farm.harvests[0].tokens_per_slot[0],
+            TokensPerSlotHistory {
+                at: Slot { slot: 120 },
+                value: TokenAmount { amount: 10 }
+            }
+        );
+
+        // we assert that the remaining elements were shifted
+        for i in 1..10_usize {
+            assert_eq!(
+                farm.harvests[0].tokens_per_slot[i],
+                TokensPerSlotHistory {
+                    at: Slot {
+                        slot: 10 * (10 - i as u64 + 1)
+                    },
+                    value: TokenAmount {
+                        amount: 1000 * (10 - i as u64 + 1)
+                    },
+                }
+            );
+        }
     }
 }
