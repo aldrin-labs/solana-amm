@@ -16,7 +16,6 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use std::iter;
 
 #[derive(Accounts)]
-#[instruction(farm_signer_bump_seed: u8)]
 pub struct AddHarvest<'info> {
     /// The ownership over the farm is checked in the [`handle`] function.
     #[account(mut)]
@@ -29,7 +28,7 @@ pub struct AddHarvest<'info> {
     /// CHECK: UNSAFE_CODES.md#signer
     #[account(
         seeds = [Farm::SIGNER_PDA_PREFIX, farm.key().as_ref()],
-        bump = farm_signer_bump_seed,
+        bump,
     )]
     pub farm_signer_pda: AccountInfo<'info>,
     pub harvest_mint: Account<'info, Mint>,
@@ -55,9 +54,9 @@ pub struct AddHarvest<'info> {
 
 pub fn handle(
     ctx: Context<AddHarvest>,
-    farm_signer_bump_seed: u8,
     tokens_per_slot: TokenAmount,
 ) -> Result<()> {
+    let farm_signer_bump_seed = *ctx.bumps.get("farm_signer_pda").unwrap();
     let accounts = ctx.accounts;
 
     let mut farm = accounts.farm.load_mut()?;

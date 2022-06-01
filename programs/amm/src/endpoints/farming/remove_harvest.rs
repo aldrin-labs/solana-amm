@@ -10,7 +10,7 @@ use crate::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};
 
 #[derive(Accounts)]
-#[instruction(farm_signer_bump_seed: u8, harvest_mint: Pubkey)]
+#[instruction(harvest_mint: Pubkey)]
 pub struct RemoveHarvest<'info> {
     /// THe ownership over the farm is checked in the [`handle`] function.
     #[account(mut)]
@@ -26,7 +26,7 @@ pub struct RemoveHarvest<'info> {
     /// CHECK: UNSAFE_CODES.md#signer
     #[account(
         seeds = [Farm::SIGNER_PDA_PREFIX, farm.key().as_ref()],
-        bump = farm_signer_bump_seed,
+        bump,
     )]
     pub farm_signer_pda: AccountInfo<'info>,
     #[account(
@@ -42,11 +42,9 @@ pub struct RemoveHarvest<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handle(
-    ctx: Context<RemoveHarvest>,
-    farm_signer_bump_seed: u8,
-    harvest_mint: Pubkey,
-) -> Result<()> {
+pub fn handle(ctx: Context<RemoveHarvest>, harvest_mint: Pubkey) -> Result<()> {
+    let farm_signer_bump_seed = *ctx.bumps.get("farm_signer_pda").unwrap();
+
     let accounts = ctx.accounts;
 
     let mut farm = accounts.farm.load_mut()?;

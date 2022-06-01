@@ -6,6 +6,16 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2022-06-01
+
+### Removed
+
+- Endpoint `claim_eligible_harvest` no longer takes bump seed as an argument.
+- Endpoint `stop_farming` no longer takes bump seed as an argument.
+- Endpoint `create_farm` no longer takes bump seed as an argument.
+- Endpoint `remove_harvest` no longer takes bump seed as an argument.
+- Endpoint `add_harvest` no longer takes bump seed as an argument.
+
 ## [0.5.3] - 2022-05-31
 
 ### Added

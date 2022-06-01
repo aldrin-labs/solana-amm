@@ -6,7 +6,6 @@ use crate::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 #[derive(Accounts)]
-#[instruction(farm_signer_bump_seed: u8)]
 pub struct CreateFarm<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -16,7 +15,7 @@ pub struct CreateFarm<'info> {
     #[account(
         mut,
         seeds = [Farm::SIGNER_PDA_PREFIX, farm.key().as_ref()],
-        bump = farm_signer_bump_seed,
+        bump,
     )]
     pub farm_signer_pda: AccountInfo<'info>,
     pub stake_mint: Account<'info, Mint>,
@@ -39,10 +38,8 @@ pub struct CreateFarm<'info> {
     pub rent: AccountInfo<'info>,
 }
 
-pub fn handle(
-    ctx: Context<CreateFarm>,
-    farm_signer_bump_seed: u8,
-) -> Result<()> {
+pub fn handle(ctx: Context<CreateFarm>) -> Result<()> {
+    let farm_signer_bump_seed = *ctx.bumps.get("farm_signer_pda").unwrap();
     let accounts = ctx.accounts;
 
     let mut farm = accounts.farm.load_init()?;

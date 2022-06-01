@@ -19,10 +19,6 @@ pub struct StopFarming<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handle(
-    _ctx: Context<StopFarming>,
-    _farm_signer_bump_seed: u8,
-    _unstake: TokenAmount,
-) -> Result<()> {
+pub fn handle(_ctx: Context<StopFarming>, _unstake: TokenAmount) -> Result<()> {
     Ok(())
 }
