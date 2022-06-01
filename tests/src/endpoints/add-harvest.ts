@@ -147,8 +147,8 @@ export function test() {
           const h = await getAccount(provider.connection, vault);
           expect(h.mint).to.deep.eq(mint);
           expect(h.owner).to.deep.eq((await farm.signer())[0]);
-          expect(h.closeAuthority).to.be.null;
-          expect(h.isInitialized).to.be.true;
+          expect(h.closeAuthority).to.eq(null);
+          expect(h.isInitialized).to.eq(true);
 
           // and the harvest mint and vault pubkeys should match
           expect(harvests[i].mint).to.deep.eq(mint);

@@ -52,8 +52,8 @@ export function test() {
       );
       expect(stakeVault.mint).to.deep.eq(farm.stakeMint);
       expect(stakeVault.owner).to.deep.eq((await farm.signer())[0]);
-      expect(stakeVault.closeAuthority).to.be.null;
-      expect(stakeVault.isInitialized).to.be.true;
+      expect(stakeVault.closeAuthority).to.eq(null);
+      expect(stakeVault.isInitialized).to.eq(true);
 
       expect(farmInfo.harvests).to.be.lengthOf(10);
       (farmInfo.harvests as any[]).forEach((h) => {

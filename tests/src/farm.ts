@@ -78,11 +78,11 @@ export class Farm {
     const skipAdminSignature = input.skipAdminSignature ?? false;
     const skipCreateFarm = input.skipCreateFarm ?? false;
     const skipKeypairSignature = input.skipAdminSignature ?? skipCreateFarm;
-    const [correctPda, _bumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), farmKeypair.publicKey.toBytes()],
       amm.programId
     );
-    const pda = input.pda ?? correctPda;
+    const farmSignerPda = input.pda ?? correctPda;
 
     const stakeMint =
       input.stakeMint ??
@@ -126,7 +126,7 @@ export class Farm {
       .accounts({
         admin: adminKeypair.publicKey,
         farm: farmKeypair.publicKey,
-        farmSignerPda: pda,
+        farmSignerPda,
         stakeMint,
         stakeVault,
       })
@@ -167,11 +167,11 @@ export class Farm {
     vault: PublicKey;
   }> {
     const tokensPerSlot = { amount: new BN(input.tokensPerSlot ?? 0) };
-    const [correctPda, _bumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), this.id.toBytes()],
       amm.programId
     );
-    const pda = input.pda ?? correctPda;
+    const farmSignerPda = input.pda ?? correctPda;
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
@@ -205,7 +205,7 @@ export class Farm {
       .accounts({
         admin: admin.publicKey,
         farm: this.id,
-        farmSignerPda: pda,
+        farmSignerPda,
         harvestMint,
         harvestVault,
       })
@@ -270,8 +270,8 @@ export class Farm {
     await amm.methods
       .takeSnapshot()
       .accounts({
-        farm: farm,
-        stakeVault: stakeVault,
+        farm,
+        stakeVault,
       })
       .rpc();
   }
@@ -312,7 +312,7 @@ export class Farm {
       .setMinSnapshotWindow(new BN(setMinSnapshotWindow))
       .accounts({
         admin: admin.publicKey,
-        farm: farm,
+        farm,
       })
       .signers(signers)
       .rpc();
@@ -365,7 +365,7 @@ export class Farm {
       .setFarmOwner()
       .accounts({
         admin: admin.publicKey,
-        farm: farm,
+        farm,
         newFarmAdmin: newFarmAdmin.publicKey,
       })
       .signers(signers)
