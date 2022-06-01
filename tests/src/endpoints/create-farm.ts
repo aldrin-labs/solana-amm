@@ -1,4 +1,4 @@
-import { errLogs, provider } from "../helpers";
+import { amm, errLogs, provider } from "../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import { expect } from "chai";
@@ -36,6 +36,10 @@ export function test() {
         Farm.init({ stakeVault: Keypair.generate().publicKey })
       );
       expect(logs).to.contain("unauthorized signer");
+    });
+
+    it("has stable size", () => {
+      expect(amm.account.farmer.size).to.eq(504);
     });
 
     it("works", async () => {

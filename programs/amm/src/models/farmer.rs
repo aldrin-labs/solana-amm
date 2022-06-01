@@ -5,6 +5,7 @@ use std::cell;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::iter;
+use std::mem;
 
 /// A user has only a single account for farming per `V` (see design docs). This
 /// minimizes the number of accounts one needs to provide to transactions and
@@ -78,6 +79,9 @@ pub struct AvailableHarvest {
 }
 
 impl Farmer {
+    /// farmer account prefix constant
+    pub const ACCOUNT_PREFIX: &'static [u8; 6] = b"farmer";
+
     /// Checks if the vested tokens can be moved to staked tokens. This method
     /// must be called before any other action is taken regarding the farmer's
     /// account.
@@ -155,6 +159,29 @@ impl Farmer {
         self.harvest_calculated_until.slot = Clock::get()?.slot;
 
         Ok(())
+    }
+
+    /// Calculates a farmer's bytes space
+    pub fn space() -> usize {
+        const DISCRIMINANT: usize = 8;
+        const PUBKEY: usize = mem::size_of::<Pubkey>();
+
+        let authority = PUBKEY;
+        let farm = PUBKEY;
+        let staked = 8;
+        let vested = 8;
+        let vested_at = 8;
+        let harvest_calculated_until = 8;
+        let harvests = consts::MAX_HARVEST_MINTS * (PUBKEY + 8);
+
+        DISCRIMINANT
+            + authority
+            + farm
+            + vested_at
+            + harvest_calculated_until
+            + staked
+            + vested
+            + harvests
     }
 }
 
@@ -252,6 +279,11 @@ mod tests {
     use super::*;
     use crate::prelude::utils::set_clock;
     use serial_test::serial;
+
+    #[test]
+    fn it_has_stable_size() {
+        assert_eq!(Farmer::space(), 504);
+    }
 
     #[test]
     fn it_doesnt_refresh_farmer_if_vesting_amount_is_zero() {

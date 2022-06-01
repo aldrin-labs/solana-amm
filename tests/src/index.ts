@@ -10,6 +10,7 @@ import * as takeSnapshot from "./endpoints/take-snapshot";
 import * as setMinSnapshotWindow from "./endpoints/set-min-snapshot-window";
 import * as setTokensPerSlot from "./endpoints/set-tokens-per-slot";
 import * as setFarmOwner from "./endpoints/set-farm-owner";
+import * as createFarmer from "./endpoints/create-farmer";
 
 import { airdrop, provider } from "./helpers";
 
@@ -21,6 +22,7 @@ describe("farming", () => {
   setMinSnapshotWindow.test();
   setFarmOwner.test();
   setTokensPerSlot.test();
+  createFarmer.test();
 
   before("airdrop SOL to provider wallet", async () => {
     await airdrop(provider.wallet.publicKey);
