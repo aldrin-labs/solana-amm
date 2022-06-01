@@ -323,6 +323,7 @@ impl Farm {
 mod tests {
     use super::*;
     use crate::prelude::utils;
+    use serial_test::serial;
 
     #[test]
     fn it_matches_harvest_tokens_per_slot_with_const() {
@@ -579,6 +580,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn set_tokens_per_slot_when_harvest_schedule_in_future() -> Result<()> {
         // asserts that every schedule configuration to tokens per slot
         // parameter is sucessful and does not change previous harvests
@@ -657,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn set_tokens_per_slot_when_past_harvest() -> Result<()> {
         // asserts that past harvest configuration updates
         // are successful if limit has not exceeded
@@ -699,6 +702,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn set_tokens_per_slot_limit_configurations_exceeded() {
         // asserts that in the case that tokens per slot changes
         // has exceeded the limit, logic fails with error
@@ -731,6 +735,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn set_tokens_per_slot_configuration_limit_exceeded_second() {
         // asserts that in the case that tokens per slot changes
         // has exceeded the limit, logic fails with error
@@ -771,6 +776,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn set_tokens_per_slot_successfull_when_oldest_snapshot_after_oldest_token_slot(
     ) {
         // asserts that changes in tokens per slot configuration is sucessful if

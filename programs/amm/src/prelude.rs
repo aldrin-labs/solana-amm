@@ -33,6 +33,8 @@ pub mod utils {
         }
     }
 
+    /// this sets global clock to given slot. During testing, make sure to run
+    /// serial test if there are clock dependent tests
     pub fn set_clock(slot: Slot) {
         assert!(slot.slot < 256);
         solana_sdk::program_stubs::set_syscall_stubs(Box::new(
