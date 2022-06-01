@@ -18,19 +18,6 @@ export function test() {
       expect(logs).to.contain("already in use");
     });
 
-    it("fails if provided with incorrect PDA signer bump seed", async () => {
-      const farmKeypair = Keypair.generate();
-      const [_, correctBumpSeed] = await Farm.signerFrom(farmKeypair.publicKey);
-
-      const logs = await errLogs(
-        Farm.init({
-          keypair: farmKeypair,
-          bumpSeed: correctBumpSeed === 0 ? 1 : 0,
-        })
-      );
-      expect(logs).to.contain("seeds constraint was violated");
-    });
-
     it("fails if provided with incorrect PDA signer address", async () => {
       const logs = await errLogs(
         Farm.init({

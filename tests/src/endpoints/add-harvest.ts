@@ -43,17 +43,6 @@ export function test() {
       expect(logs).to.contain("seeds constraint was violated");
     });
 
-    it("fails if farm signer bump seed is wrong", async () => {
-      const [_, correctBumpSeed] = await farm.signer();
-
-      const logs = await errLogs(
-        farm.addHarvest({
-          bumpSeed: correctBumpSeed === 0 ? 1 : 0,
-        })
-      );
-      expect(logs).to.contain("seeds constraint was violated");
-    });
-
     it("fails if harvest mint is not token program account", async () => {
       const logs = await errLogs(
         farm.addHarvest({

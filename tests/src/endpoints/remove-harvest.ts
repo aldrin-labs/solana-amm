@@ -48,17 +48,6 @@ export function test() {
       expect(logs).to.contain("seeds constraint was violated");
     });
 
-    it("fails if farm signer bump seed is wrong", async () => {
-      const [_, correctBumpSeed] = await farm.signer();
-
-      const logs = await errLogs(
-        farm.removeHarvest(harvest.mint, {
-          bumpSeed: correctBumpSeed === 0 ? 1 : 0,
-        })
-      );
-      expect(logs).to.contain("seeds constraint was violated");
-    });
-
     it("fails if harvest vault is does not have the expected seed", async () => {
       await expect(
         farm.removeHarvest(harvest.mint, {

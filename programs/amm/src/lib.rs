@@ -21,35 +21,22 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod amm {
     use super::*;
 
-    pub fn create_farm(
-        ctx: Context<CreateFarm>,
-        farm_signer_bump_seed: u8,
-    ) -> Result<()> {
-        endpoints::farming::create_farm::handle(ctx, farm_signer_bump_seed)
+    pub fn create_farm(ctx: Context<CreateFarm>) -> Result<()> {
+        endpoints::farming::create_farm::handle(ctx)
     }
 
     pub fn add_harvest(
         ctx: Context<AddHarvest>,
-        farm_signer_bump_seed: u8,
         tokens_per_slot: TokenAmount,
     ) -> Result<()> {
-        endpoints::farming::add_harvest::handle(
-            ctx,
-            farm_signer_bump_seed,
-            tokens_per_slot,
-        )
+        endpoints::farming::add_harvest::handle(ctx, tokens_per_slot)
     }
 
     pub fn remove_harvest(
         ctx: Context<RemoveHarvest>,
-        farm_signer_bump_seed: u8,
         harvest_mint: Pubkey,
     ) -> Result<()> {
-        endpoints::farming::remove_harvest::handle(
-            ctx,
-            farm_signer_bump_seed,
-            harvest_mint,
-        )
+        endpoints::farming::remove_harvest::handle(ctx, harvest_mint)
     }
 
     pub fn set_farm_owner(ctx: Context<SetFarmOwner>) -> Result<()> {
@@ -101,14 +88,9 @@ pub mod amm {
 
     pub fn stop_farming(
         ctx: Context<StopFarming>,
-        farm_signer_bump_seed: u8,
         unstake: TokenAmount,
     ) -> Result<()> {
-        endpoints::farming::stop_farming::handle(
-            ctx,
-            farm_signer_bump_seed,
-            unstake,
-        )
+        endpoints::farming::stop_farming::handle(ctx, unstake)
     }
 
     pub fn update_eligible_harvest(
@@ -119,11 +101,7 @@ pub mod amm {
 
     pub fn claim_eligible_harvest(
         ctx: Context<ClaimEligibleHarvest>,
-        farm_signer_bump_seed: u8,
     ) -> Result<()> {
-        endpoints::farming::claim_eligible_harvest::handle(
-            ctx,
-            farm_signer_bump_seed,
-        )
+        endpoints::farming::claim_eligible_harvest::handle(ctx)
     }
 }

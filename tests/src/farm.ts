@@ -5,7 +5,6 @@ import { BN } from "@project-serum/anchor";
 
 export interface InitFarmArgs {
   adminKeypair: Keypair;
-  bumpSeed: number;
   keypair: Keypair;
   pda: PublicKey;
   skipAdminSignature: boolean;
@@ -17,7 +16,6 @@ export interface InitFarmArgs {
 
 export interface AddHarvestArgs {
   admin: Keypair;
-  bumpSeed: number;
   harvestMint: PublicKey;
   harvestVault: PublicKey;
   pda: PublicKey;
@@ -27,7 +25,6 @@ export interface AddHarvestArgs {
 
 export interface RemoveHarvestArgs {
   admin: Keypair;
-  bumpSeed: number;
   harvestVault: PublicKey;
   pda: PublicKey;
   skipAdminSignature: boolean;
@@ -81,12 +78,11 @@ export class Farm {
     const skipAdminSignature = input.skipAdminSignature ?? false;
     const skipCreateFarm = input.skipCreateFarm ?? false;
     const skipKeypairSignature = input.skipAdminSignature ?? skipCreateFarm;
-    const [correctPda, correctBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _bumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), farmKeypair.publicKey.toBytes()],
       amm.programId
     );
     const pda = input.pda ?? correctPda;
-    const bumpSeed = input.bumpSeed ?? correctBumpSeed;
 
     const stakeMint =
       input.stakeMint ??
@@ -103,7 +99,7 @@ export class Farm {
     const stakeVault =
       input.stakeVault ??
       (await (async () => {
-        const [pda, _] = await PublicKey.findProgramAddress(
+        const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
           [Buffer.from("stake_vault"), farmKeypair.publicKey.toBytes()],
           amm.programId
         );
@@ -126,7 +122,7 @@ export class Farm {
     }
 
     await amm.methods
-      .createFarm(bumpSeed)
+      .createFarm()
       .accounts({
         admin: adminKeypair.publicKey,
         farm: farmKeypair.publicKey,
@@ -146,7 +142,7 @@ export class Farm {
   }
 
   public async stakeVault(): Promise<PublicKey> {
-    const [pda, _] = await PublicKey.findProgramAddress(
+    const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("stake_vault"), this.id.toBytes()],
       amm.programId
     );
@@ -171,12 +167,11 @@ export class Farm {
     vault: PublicKey;
   }> {
     const tokensPerSlot = { amount: new BN(input.tokensPerSlot ?? 0) };
-    const [correctPda, correctBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _bumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), this.id.toBytes()],
       amm.programId
     );
     const pda = input.pda ?? correctPda;
-    const bumpSeed = input.bumpSeed ?? correctBumpSeed;
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
@@ -189,7 +184,7 @@ export class Farm {
     const harvestVault =
       input.harvestVault ??
       (await (async () => {
-        const [pda, _] = await PublicKey.findProgramAddress(
+        const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
           [
             Buffer.from("harvest_vault"),
             this.id.toBytes(),
@@ -206,7 +201,7 @@ export class Farm {
     }
 
     await amm.methods
-      .addHarvest(bumpSeed, tokensPerSlot)
+      .addHarvest(tokensPerSlot)
       .accounts({
         admin: admin.publicKey,
         farm: this.id,
@@ -227,19 +222,19 @@ export class Farm {
     mint: PublicKey,
     input: Partial<RemoveHarvestArgs> = {}
   ): Promise<PublicKey> {
-    const [correctPda, correctBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), this.id.toBytes()],
       amm.programId
     );
     const pda = input.pda ?? correctPda;
-    const bumpSeed = input.bumpSeed ?? correctBumpSeed;
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
-    const [correctVaultPda, _] = await PublicKey.findProgramAddress(
-      [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
-      amm.programId
-    );
+    const [correctVaultPda, _vaultBumpSeed] =
+      await PublicKey.findProgramAddress(
+        [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
+        amm.programId
+      );
     const harvestVault = input.harvestVault ?? correctVaultPda;
 
     const adminHarvestWallet =
@@ -253,7 +248,7 @@ export class Farm {
     }
 
     await amm.methods
-      .removeHarvest(bumpSeed, mint)
+      .removeHarvest(mint)
       .accounts({
         admin: admin.publicKey,
         adminHarvestWallet,

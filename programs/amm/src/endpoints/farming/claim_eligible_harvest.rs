@@ -25,9 +25,6 @@ pub struct ClaimEligibleHarvest<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handle(
-    _ctx: Context<ClaimEligibleHarvest>,
-    _farm_signer_bump_seed: u8,
-) -> Result<()> {
+pub fn handle(_ctx: Context<ClaimEligibleHarvest>) -> Result<()> {
     Ok(())
 }
