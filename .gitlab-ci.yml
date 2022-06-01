@@ -23,6 +23,7 @@ unit:
     - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
   script:
     - cargo fmt --check
+    - cargo clippy -- -D warnings
     - cargo test --lib
 
 # builds program and idl in parallel with other build stage jobs
@@ -48,6 +49,7 @@ program:
 
     - yarn
   script:
+    - npm run fmt-check
     - npm run lint
     # both builds the program and runs integration tests
     - ./bin/test.sh
@@ -70,7 +72,6 @@ program:
     - mkdir -p ~/.ssh
     - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
   script:
-
     # generates docs.rs style page
     - cargo doc --lib --no-deps --document-private-items
     - cp -r target/doc public

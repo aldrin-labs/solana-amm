@@ -35,15 +35,15 @@ export function test() {
     it("fails if wrong stake vault is provided", async () => {
       const minSnapshotWindow = 1;
       await farm.setMinSnapshotWindow(minSnapshotWindow, {
-        admin: admin,
+        admin,
       });
 
-      let fake_vault = await farm.createStakeWallet(0);
+      const fakeVault = await farm.createStakeWallet(0);
 
       sleep(2_000);
       const logs = await errLogs(
         farm.takeSnapshot({
-          stakeVault: fake_vault,
+          stakeVault: fakeVault,
         })
       );
 
