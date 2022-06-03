@@ -10,6 +10,11 @@ variables:
 unit:
   stage: build
   image: registry.gitlab.com/crypto_project/defi/infra/rust-solana:${SOLANA_VERSION}
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: target/debug/coverage/cobertura.xml
   cache:
     key: "unit-cache-${CI_COMMIT_BRANCH}"
     paths:
@@ -24,7 +29,7 @@ unit:
   script:
     - cargo fmt --check
     - cargo clippy -- -D warnings
-    - cargo test
+    - ./bin/codecov.sh "cobertura"
 
 # builds program and idl in parallel with other build stage jobs
 program:
