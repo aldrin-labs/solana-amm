@@ -2,7 +2,7 @@
 //! Pairs of token accounts for each farm harvest where first member of each
 //! pair is the harvest vault and second member is the farmer's harvest wallet.
 //!
-//! ```
+//! ```text
 //! [
 //!   harvest_vault1,
 //!   harvest_wallet1,

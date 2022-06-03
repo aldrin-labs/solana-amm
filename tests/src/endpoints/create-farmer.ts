@@ -39,7 +39,7 @@ export function test() {
       expect(farmerInfo.staked.amount.toNumber()).to.deep.eq(0);
       expect(farmerInfo.vested.amount.toNumber()).to.deep.eq(0);
       expect(farmerInfo.vestedAt.slot.toNumber()).to.deep.eq(0);
-      expect(farmerInfo.harvestCalculatedUntil.slot.toNumber()).to.deep.eq(0);
+      expect(farmerInfo.calculateNextHarvestFrom.slot.toNumber()).to.deep.eq(0);
 
       expect(farmerInfo.harvests).to.be.lengthOf(10);
       (farmerInfo.harvests as any[]).forEach(({ mint, tokens }) => {
