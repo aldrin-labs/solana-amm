@@ -1,11 +1,10 @@
 //! User's representation of their position.
 
 use crate::prelude::*;
-use std::cell;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::iter;
-use std::mem;
+use std::{cmp, mem};
 
 /// A user has only a single account for farming per `V` (see design docs). This
 /// minimizes the number of accounts one needs to provide to transactions and
@@ -35,12 +34,17 @@ pub struct Farmer {
     /// This value is not changed after moving `vested` to
     /// `staked`, only when staking.
     pub vested_at: Slot,
-    /// The slot (inclusive) of since when is the farmer eligible for harvest
-    /// again. In other words, upon calculating the available harvest for the
-    /// farmer, we set this value to the current slot.
-    pub harvest_calculated_until: Slot,
-    /// Stores how many tokens is the farmer eligible for **excluding** harvest
-    /// since the `harvest_calculated_until` slot.
+    /// The slot from which the we can start calculating the reamining eligible
+    /// harvest from. In other words, upon calculating the available harvest
+    /// for the farmer, we set this value to the current slot + 1
+    ///
+    /// # Important
+    /// This value is inclusive.
+    /// If calculate_next_harvest_from.slot == 5 and the current slot == 8,
+    /// then we need to calculate the harvest for slots 5, 6, 7.
+    pub calculate_next_harvest_from: Slot,
+    /// Stores how many tokens is the farmer eligible for harvest since
+    /// the slot prior to the `calculate_next_harvest_from` slot.
     ///
     /// These values are incremented by
     /// [`crate::endpoints::farming::calculate_available_harvest`]. Its main
@@ -111,17 +115,7 @@ impl Farmer {
     /// for by iterating over the snapshot history (if the farmer last harvest
     /// was before last snapshot) and then calculating it in the open window
     /// too.
-    ///
-    /// Use use [`cell::Ref`] because farm is too large to fit on stack.
-    ///
-    /// TODO: unit test this method when [updating eligible harvest in past
-    /// windows][issue-18] is finished.
-    ///
-    /// [issue-18]: https://gitlab.com/crypto_project/defi/amm/-/issues/18
-    pub fn update_eligible_harvest(
-        &mut self,
-        farm: cell::Ref<Farm>,
-    ) -> Result<()> {
+    pub fn update_eligible_harvest(&mut self, farm: &Farm) -> Result<()> {
         let farm_harvests: BTreeMap<_, _> =
             farm.harvests.iter().map(|h| (h.mint, h)).collect();
         let mut farmer_harvests: BTreeMap<_, _> =
@@ -129,13 +123,35 @@ impl Farmer {
 
         sync_harvest_mints(&farm_harvests, &mut farmer_harvests);
 
-        // TODO: https://gitlab.com/crypto_project/defi/amm/-/issues/18
+        let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            self.calculate_next_harvest_from,
+        );
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshot_iter,
+            &mut farmer_harvests,
+            self.calculate_next_harvest_from,
+            self.staked,
+        )?;
+
+        // We should only update calculate_next_harvest_from if the last
+        // calculated slot is not after the latest snapshot slot. In
+        // other words, if the last snapshot slot is 50 but the
+        // calculate_next_harvest_from is already 55, then
+        // we should keep it as it is. This guarantees that
+        // calculate_next_harvest_from can never decrease, or in other
+        // words, go back to the past.
+        let last_snapshot_slot = farm.latest_snapshot().started_at;
+
+        if last_snapshot_slot.slot > self.calculate_next_harvest_from.slot {
+            self.calculate_next_harvest_from = last_snapshot_slot;
+        }
 
         update_eligible_harvest_in_open_window(
             &farm_harvests,
-            &Farm::latest_snapshot(&farm),
+            &farm.latest_snapshot(),
             &mut farmer_harvests,
-            self.harvest_calculated_until,
+            self.calculate_next_harvest_from,
             self.staked,
         )?;
 
@@ -156,7 +172,7 @@ impl Farmer {
                 AmmError::InvariantViolation
             })?;
 
-        self.harvest_calculated_until.slot = Clock::get()?.slot;
+        self.calculate_next_harvest_from.slot = Clock::get()?.slot + 1;
 
         Ok(())
     }
@@ -198,19 +214,23 @@ fn update_eligible_harvest_in_open_window(
     farm_harvests: &BTreeMap<Pubkey, &Harvest>,
     open_window: &Snapshot,
     farmer_harvests: &mut BTreeMap<Pubkey, TokenAmount>,
-    farmer_harvest_calculated_until: Slot,
+    calculate_next_harvest_from: Slot,
     farmer_staked: TokenAmount,
 ) -> Result<()> {
     let current_slot = Clock::get()?.slot;
 
-    if farmer_harvest_calculated_until.slot >= current_slot {
+    if calculate_next_harvest_from.slot > current_slot {
         return Ok(());
     }
 
-    if farmer_harvest_calculated_until.slot < open_window.started_at.slot {
+    if calculate_next_harvest_from.slot < open_window.started_at.slot {
         msg!("Calculate harvest of past snapshots first");
         // this would only happen if our logic is composed incorrectly
         return Err(error!(AmmError::InvariantViolation));
+    }
+
+    if open_window.staked.amount == 0 {
+        return Ok(());
     }
 
     for farm_harvest in farm_harvests
@@ -229,13 +249,12 @@ fn update_eligible_harvest_in_open_window(
         //
         // ref. eq. (1)
         //
-
         let farmer_share = Decimal::from(farmer_staked.amount)
             .try_div(Decimal::from(open_window.staked.amount))?;
         let (tps, _) = farm_harvest.tokens_per_slot(open_window.started_at);
         // We don't have to check for underflow because of a condition in
         // the beginning of the method.
-        let slots = current_slot - farmer_harvest_calculated_until.slot;
+        let slots = current_slot - calculate_next_harvest_from.slot;
         let eligible_harvest = Decimal::from(slots)
             .try_mul(Decimal::from(tps.amount))?
             .try_mul(farmer_share)?
@@ -251,7 +270,115 @@ fn update_eligible_harvest_in_open_window(
             },
         );
     }
+    Ok(())
+}
 
+/// Calculates farmer's share of tokens in the past snapshots (not including
+/// the open window).
+///
+/// This method updates the token value of the input `farmer_harvests` map.
+///
+/// Before calculating the farmer's harvest in the open window, the harvest
+/// needs to be calculated in the past snapshots. It the farmer hasn't harvested
+/// the eligible harvest form past snapshots, then this method needs to be
+/// called prior to `[update_eligible_harvest_in_open_window]`.
+fn update_eligible_harvest_in_past_snapshots<'a>(
+    farm_harvests: &BTreeMap<Pubkey, &Harvest>,
+    snapshots_iter: impl Iterator<Item = &'a Snapshot>,
+    farmer_harvests: &mut BTreeMap<Pubkey, TokenAmount>,
+    calculate_next_harvest_from: Slot,
+    farmer_staked: TokenAmount,
+) -> Result<()> {
+    let mut snapshots_iter = snapshots_iter.peekable();
+
+    if snapshots_iter.peek().is_none() {
+        return Ok(());
+    }
+
+    let current_slot = Clock::get()?.slot;
+
+    // This needs to be calculated outside the harvest loop because other it
+    // will pop more than one snapshot, and we only want to pop the open window.
+    // It's safe to unwrap as we have asserted that the snapshots_iter is not
+    // empty
+    let initial_next_slot_started_at =
+        snapshots_iter.next().unwrap().started_at.slot;
+
+    // Skip calculation if calculate_next_harvest_from is in the future
+    if calculate_next_harvest_from.slot >= current_slot {
+        return Ok(());
+    }
+
+    // We initiliase this variable to the first snapshot.started.slot in the
+    // iterator. As the iterator is in reverse order this should
+    // correspond to the open_window slot
+    let mut next_slot_started_at = initial_next_slot_started_at;
+
+    for snapshot in snapshots_iter.filter(|s| s.staked.amount > 0) {
+        // For the oldest snapshot in the snapshots iter it is likely that
+        // it started at a slot that is smaller than
+        // calculate_next_harvest_from.slot Therefore we chose
+        // the maximum between the two values to make sure
+        // that we do not account for slots that its harvers has been
+        // already calculated
+        let start_at_slot = cmp::max(
+            snapshot.started_at.slot,
+            calculate_next_harvest_from.slot,
+        );
+
+        // The only way for this condition not to be met is if there are
+        // older snapshots in the iterator, that have finished
+        // before calculate_next_harvest_from.slot This should
+        // never happen because we control what snapshots are in the
+        // iterator by making sure the parameter comes from the
+        // output of [`get_window_snapshots_eligible_to_harvest`]
+        if next_slot_started_at > start_at_slot {
+            let farmer_share = Decimal::from(farmer_staked.amount)
+                .try_div(Decimal::from(snapshot.staked.amount))?;
+
+            // We don't have to check for overflow because this calculation
+            // is wrapped in the condition that makes slot
+            // positive only.
+            let slots = next_slot_started_at - start_at_slot;
+
+            // OPTIMIZE: https://gitlab.com/crypto_project/defi/amm/-/issues/34
+            for farm_harvest in farm_harvests
+                .values()
+                .filter(|h| h.mint != Pubkey::default())
+            {
+                let farmer_harvest_to_date = *farmer_harvests
+                    .get(&farm_harvest.mint)
+                    .ok_or_else(|| {
+                        // should never if [`sync_harvest_mints`] is correct
+                        msg!("Harvests are not in sync");
+                        AmmError::InvariantViolation
+                    })?;
+
+                // OPTIMIZE: https://gitlab.com/crypto_project/defi/amm/-/issues/34
+                let (tps, _) =
+                    farm_harvest.tokens_per_slot(snapshot.started_at);
+
+                // We don't have to check for underflow because of a condition
+                // in the beginning of the method.
+                let eligible_harvest = Decimal::from(slots)
+                    .try_mul(farmer_share)?
+                    .try_mul(Decimal::from(tps.amount))?
+                    .try_floor_u64()?;
+
+                farmer_harvests.insert(
+                    farm_harvest.mint,
+                    TokenAmount {
+                        amount: farmer_harvest_to_date
+                            .amount
+                            .checked_add(eligible_harvest)
+                            .ok_or(AmmError::MathOverflow)?,
+                    },
+                );
+            }
+        }
+
+        next_slot_started_at = snapshot.started_at.slot;
+    }
     Ok(())
 }
 
@@ -277,7 +404,7 @@ fn sync_harvest_mints(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::utils::set_clock;
+    use crate::prelude::utils::*;
     use serial_test::serial;
 
     #[test]
@@ -484,7 +611,7 @@ mod tests {
 
         let current_slot = 10;
         let snapshot_started_at = 5;
-        let harvest_calculated_until = 5;
+        let calculate_next_harvest_from = 5;
         let total_staked = 10;
         let farmer_staked = 5;
         set_clock(Slot { slot: current_slot });
@@ -500,7 +627,7 @@ mod tests {
             },
             &mut farmer_harvests,
             Slot {
-                slot: harvest_calculated_until,
+                slot: calculate_next_harvest_from,
             },
             TokenAmount::new(farmer_staked),
         )?;
@@ -510,7 +637,7 @@ mod tests {
                 (
                     mint1,
                     TokenAmount::new(
-                        10 + (current_slot - harvest_calculated_until)
+                        10 + (current_slot - calculate_next_harvest_from)
                             * harvest1_rho
                             * farmer_staked
                             / total_staked
@@ -519,7 +646,7 @@ mod tests {
                 (
                     mint2,
                     TokenAmount::new(
-                        (current_slot - harvest_calculated_until)
+                        (current_slot - calculate_next_harvest_from)
                             * harvest2_rho
                             * farmer_staked
                             / total_staked
@@ -670,5 +797,1023 @@ mod tests {
             .into_iter()
             .collect()
         );
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_harvest_in_snapshot_history_when_tps_constant() -> Result<()>
+    {
+        // The purpose of this test is to make sure the method
+        // update_eligible_harvest_in_past_snapshots
+        // correctly calculates the available harvest in the past snapshots when
+        // the tps is constant over the timespan. Note: The last
+        // snapshot in the snapshots_to_harvest corresponds to the open window
+        // and will therefore not be considered by the method for the purpose of
+        // eligible harvest.
+
+        let mint1 = Pubkey::new_unique();
+
+        let harvest1 = Harvest {
+            mint: mint1,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(50),
+                value: TokenAmount::new(100),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let mint2 = Pubkey::new_unique();
+        let harvest2 = Harvest {
+            mint: mint2,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(0),
+                value: TokenAmount::new(1_000),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint1, &harvest1), (mint2, &harvest2)]
+                .into_iter()
+                .collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> = vec![
+            (mint1, TokenAmount::new(100)),
+            (mint2, TokenAmount::default()),
+        ]
+        .into_iter()
+        .collect();
+
+        let current_slot = 85;
+        let calculate_next_harvest_from = 50;
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 60 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 80 },
+            },
+        ]
+        .iter()
+        .rev();
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![
+                (
+                    mint1,
+                    TokenAmount {
+                        // 100 represents what has been already harvested prior
+                        // to the function call
+                        // slot= 60    70
+                        amount: 100 + 500 + 333
+                    }
+                ),
+                (
+                    mint2,
+                    TokenAmount {
+                        // Nothing has been harvested prior to the function call
+                        // slot=   60      70
+                        amount: 5_000 + 3_333
+                    }
+                ),
+            ]
+            .into_iter()
+            .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_harvest_in_snapshot_history_when_calc_next_harvest_from_eq_open_window_slot(
+    ) -> Result<()> {
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(50),
+                value: TokenAmount::new(100),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::default())].into_iter().collect();
+
+        let current_slot = 85;
+
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 60 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 80 },
+            },
+        ]
+        .iter()
+        .rev();
+
+        let calculate_next_harvest_from = 80;
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(mint, TokenAmount { amount: 0 }),]
+                .into_iter()
+                .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_harvest_in_snapshot_history_when_calc_next_harvest_from_eq_snapshot_slot(
+    ) -> Result<()> {
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(50),
+                value: TokenAmount::new(100),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::default())].into_iter().collect();
+
+        let current_slot = 85;
+
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 60 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 80 },
+            },
+        ]
+        .iter()
+        .rev();
+
+        let calculate_next_harvest_from = 70;
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(mint, TokenAmount { amount: 333 }),]
+                .into_iter()
+                .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_harvest_in_snapshot_history_when_tps_variant() -> Result<()> {
+        // The purpose of this test is to make sure the method
+        // update_eligible_harvest_in_past_snapshots
+        // correctly calculates the available harvest in the past snapshots when
+        // the tps is variant over the timespan. Note: The last snapshot
+        // in the snapshots_to_harvest corresponds to the open window
+        // and will therefore not be considered by the method for the purpose of
+        // eligible harvest.
+
+        let mint1 = Pubkey::new_unique();
+
+        let harvest1 = Harvest {
+            mint: mint1,
+            vault: Default::default(),
+            tokens_per_slot: generate_tps_history(&mut vec![
+                (65, 200),
+                (50, 100),
+                (35, 50),
+                (0, 10),
+            ])
+            .try_into()
+            .unwrap(),
+        };
+
+        let mint2 = Pubkey::new_unique();
+        let harvest2 = Harvest {
+            mint: mint2,
+            vault: Default::default(),
+            tokens_per_slot: generate_tps_history(&mut vec![
+                (65, 2_000),
+                (50, 1_000),
+                (35, 500),
+                (0, 100),
+            ])
+            .try_into()
+            .unwrap(),
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint1, &harvest1), (mint2, &harvest2)]
+                .into_iter()
+                .collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> = vec![
+            (mint1, TokenAmount::new(100)),
+            (mint2, TokenAmount::default()),
+        ]
+        .into_iter()
+        .collect();
+
+        let current_slot = 90;
+        let calculate_next_harvest_from = 60;
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 60 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 80 },
+            },
+        ]
+        .iter()
+        .rev();
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![
+                (
+                    mint1,
+                    TokenAmount {
+                        // 100 represents what has been already harvested prior
+                        // to the function call slot=
+                        // 60    70
+                        amount: 100 + 500 + 666 // 1_266
+                    }
+                ),
+                (
+                    mint2,
+                    TokenAmount {
+                        // Nothing has been harvested prior to the function call
+                        // slot=   60      70
+                        amount: 5_000 + 6_666 // 11_666
+                    }
+                ),
+            ]
+            .into_iter()
+            .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_updates_harvest_in_snapshot_history_when_called_twice(
+    ) -> Result<()> {
+        // The purpose of this test is to make sure the method
+        // update_eligible_harvest_in_past_snapshots
+        // correctly calculates the available harvest in the past snapshots when
+        // the endpoint is called twice in a row in the same current
+        // slot. When the enpoint is first called the expected behaviour
+        // is to update the eligible harvest in the past snapshots. We then
+        // update calculate_next_harvest_from but do not update the
+        // snapshot iterator. The method is expected to handle the old invalid
+        // snapshots by skipping them in the calculation of the eligible
+        // harvest.
+
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(5),
+                value: TokenAmount::new(100),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::default())].into_iter().collect();
+
+        let current_slot = 90;
+        let mut calculate_next_harvest_from = 50;
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 60 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 80 },
+            },
+        ]
+        .iter()
+        .rev();
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest.clone(),
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        calculate_next_harvest_from = 80;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(
+                mint,
+                TokenAmount {
+                    // slot= 60    70
+                    amount: 500 + 333 // 833
+                }
+            ),]
+            .into_iter()
+            .collect()
+        );
+
+        // This call expected not to change the eligible harvest.
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest.clone(),
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(
+                mint,
+                TokenAmount {
+                    // slot= 60    70
+                    amount: 500 + 333 // 833
+                }
+            ),]
+            .into_iter()
+            .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_skips_available_harvest_in_snapshot_history_if_slot_gt_or_eq_to_current_slot(
+    ) -> Result<()> {
+        // The purpose of this test is to make sure the method
+        // update_eligible_harvest_in_past_snapshots
+        // skips the calculation of eligible harvest whenever there are no
+        // snapshots valid in the snapshot iterator. This happens if the
+        // calculate_next_harvest_from is greater than or equal to the slots of
+        // the snapshots in the snapshot iterator.
+
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(5),
+                value: TokenAmount::new(100),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::new(100))].into_iter().collect();
+
+        let current_slot = 90;
+        let calculate_next_harvest_from = 80;
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 80 },
+            },
+        ]
+        .iter();
+
+        set_clock(Slot { slot: current_slot });
+        let result = update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(result, ());
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_updates_available_harvest_in_snapshot_history_even_if_invalid_snapshots_in_snashots_iterator(
+    ) -> Result<()> {
+        // The purpose of this test is to make sure that the method
+        // `update_eligible_harvest_in_past_snapshots` correctly skips
+        // older invalid snapshots in the snapshot queue as well as the open
+        // window. Usually the snapshot iterator will not contain
+        // older invalid snapshots as these are filtered before the function
+        // call. However we still test as if, to guarantee extra safety.
+
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(5),
+                value: TokenAmount::new(100),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::new(0))].into_iter().collect();
+
+        let current_slot = 75;
+        let calculate_next_harvest_from = 60;
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                // Snapshot 50 is already entirely harvested therefore it should
+                // be skipped.
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 50 },
+            },
+            Snapshot {
+                // Snapshot 60 is only valid snapshot.
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 60 },
+            },
+            Snapshot {
+                // Snapshot 70 is open window therefore it should be skipped.
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 70 },
+            },
+            Snapshot {
+                // Snapshot 30 is invalid therefore it should be skipped.
+                staked: TokenAmount { amount: 30_000 },
+                started_at: Slot { slot: 30 },
+            },
+            Snapshot {
+                // Snapshot 40 is invalid therefore it should be skipped.
+                staked: TokenAmount { amount: 40_000 },
+                started_at: Slot { slot: 40 },
+            },
+        ]
+        .iter()
+        .rev();
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(mint, TokenAmount::new(333)),].into_iter().collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_works_with_no_harvests_in_past_snapshot() -> Result<()> {
+        set_clock(Slot { slot: 9 });
+
+        let farm_harvests = BTreeMap::default();
+        let mut farmer_harvests = BTreeMap::default();
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 6 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 7 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 8 },
+            },
+        ]
+        .iter();
+
+        let current_slot = 9;
+        let calculate_next_harvest_from = 8;
+        let farmer_staked = 5_000;
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(farmer_harvests, BTreeMap::default());
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_harvest_in_snapshot_history_when_user_share_is_zero(
+    ) -> Result<()> {
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(5),
+                value: TokenAmount::new(1_000),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::new(0))].into_iter().collect();
+
+        let current_slot = 9;
+        let calculate_next_harvest_from = 5;
+        let farmer_staked = 0;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 6 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 7 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 8 },
+            },
+        ]
+        .iter();
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(mint, TokenAmount::new(0)),].into_iter().collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_harvest_in_snapshot_history_when_tps_is_zero() -> Result<()> {
+        let mint = Pubkey::new_unique();
+
+        let harvest = Harvest {
+            mint: mint,
+            vault: Default::default(),
+            tokens_per_slot: [TokensPerSlotHistory {
+                at: Slot::new(0),
+                value: TokenAmount::new(0),
+            };
+                consts::TOKENS_PER_SLOT_HISTORY_LEN],
+        };
+
+        let farm_harvests: BTreeMap<_, _> =
+            vec![(mint, &harvest)].into_iter().collect();
+
+        let mut farmer_harvests: BTreeMap<_, _> =
+            vec![(mint, TokenAmount::new(0))].into_iter().collect();
+
+        let current_slot = 9;
+        let calculate_next_harvest_from = 5;
+        let farmer_staked = 5_000;
+
+        let snapshots_to_harvest = [
+            Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 6 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 15_000 },
+                started_at: Slot { slot: 7 },
+            },
+            Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 8 },
+            },
+        ]
+        .iter();
+
+        set_clock(Slot { slot: current_slot });
+        update_eligible_harvest_in_past_snapshots(
+            &farm_harvests,
+            snapshots_to_harvest,
+            &mut farmer_harvests,
+            Slot {
+                slot: calculate_next_harvest_from,
+            },
+            TokenAmount {
+                amount: farmer_staked,
+            },
+        )?;
+
+        assert_eq!(
+            farmer_harvests,
+            vec![(mint, TokenAmount::new(0)),].into_iter().collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_updates_eligible_harvest() -> Result<()> {
+        let mut farmer = Farmer {
+            staked: TokenAmount { amount: 1_000 },
+            vested: TokenAmount { amount: 0 },
+            vested_at: Slot { slot: 0 },
+            calculate_next_harvest_from: Slot { slot: 5 },
+            ..Default::default()
+        };
+
+        let mint = Pubkey::new_unique();
+
+        let farm = Farm {
+            harvests: generate_harvests(&mut vec![(
+                mint,
+                generate_tps_history(&mut vec![(35, 100), (0, 50)])
+                    .try_into()
+                    .unwrap(),
+            )])
+            .try_into()
+            .unwrap(),
+            snapshots: Snapshots {
+                ring_buffer_tip: 5,
+                ring_buffer: generate_snapshots(&mut vec![
+                    (0, 2_000),
+                    (10, 10_000),
+                    (20, 10_000),
+                    (30, 20_000),
+                    (40, 20_000),
+                    (50, 20_000),
+                ])
+                .try_into()
+                .unwrap(),
+            },
+            ..Default::default()
+        };
+
+        set_clock(Slot { slot: 55 });
+        farmer.update_eligible_harvest(&farm)?;
+
+        assert_eq!(farmer.staked, TokenAmount { amount: 1_000 });
+        assert_eq!(farmer.calculate_next_harvest_from, Slot { slot: 56 });
+        assert_eq!(farmer.harvests[1].mint, mint);
+        assert_eq!(
+            farmer.harvests[1].tokens,
+            TokenAmount {
+                // slot=  0   10   20   30   40   50
+                amount: 125 + 50 + 50 + 25 + 50 + 25
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_updates_eligible_harvest_when_called_twice() -> Result<()> {
+        // The purpose of this test is to make sure that when the endpoint is
+        // called twice in the same given current slot, the second call
+        // will not change the eligible harvest
+
+        let mut farmer = Farmer {
+            staked: TokenAmount { amount: 1_000 },
+            vested: TokenAmount { amount: 0 },
+            vested_at: Slot { slot: 0 },
+            calculate_next_harvest_from: Slot { slot: 5 },
+            ..Default::default()
+        };
+
+        let mint = Pubkey::new_unique();
+
+        let farm = Farm {
+            harvests: generate_harvests(&mut vec![(
+                mint,
+                generate_tps_history(&mut vec![(35, 100), (0, 50)])
+                    .try_into()
+                    .unwrap(),
+            )])
+            .try_into()
+            .unwrap(),
+            snapshots: Snapshots {
+                ring_buffer_tip: 5,
+                ring_buffer: generate_snapshots(&mut vec![
+                    (0, 2_000),
+                    (10, 10_000),
+                    (20, 10_000),
+                    (30, 20_000),
+                    (40, 20_000),
+                    (50, 20_000),
+                ])
+                .try_into()
+                .unwrap(),
+            },
+            ..Default::default()
+        };
+
+        set_clock(Slot { slot: 55 });
+        farmer.update_eligible_harvest(&farm)?;
+
+        assert_eq!(farmer.staked, TokenAmount { amount: 1_000 });
+        assert_eq!(farmer.calculate_next_harvest_from, Slot { slot: 56 });
+
+        assert_eq!(farmer.harvests[1].mint, mint);
+        assert_eq!(
+            farmer.harvests[1].tokens,
+            TokenAmount {
+                // slot=  0   10   20   30   40   50
+                amount: 125 + 50 + 50 + 25 + 50 + 25
+            }
+        );
+
+        // Test: Calling the endpoint second time in the same current_slot
+        // should have no effect on eligible harvest
+        farmer.update_eligible_harvest(&farm)?;
+
+        assert_eq!(farmer.harvests[1].mint, mint);
+        assert_eq!(
+            farmer.harvests[1].tokens,
+            TokenAmount {
+                // slot=  0   10   20   30   40   50
+                amount: 125 + 50 + 50 + 25 + 50 + 25
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_updates_eligible_harvest_even_with_old_invalid_snapshots_iterator(
+    ) -> Result<()> {
+        // The purpose of this test is to assert that the method
+        // update_eligible_harvest correctly calculates eligible harvest
+        // even when calculate_next_harvest_from.slot > 0 and that therefore
+        // proves that the method can successfully skip through old invalid
+        // snapshots in the ring buffer
+
+        let mut farmer = Farmer {
+            staked: TokenAmount { amount: 1_000 },
+            vested: TokenAmount { amount: 0 },
+            vested_at: Slot { slot: 0 },
+            calculate_next_harvest_from: Slot { slot: 45 },
+            ..Default::default()
+        };
+
+        let mint = Pubkey::new_unique();
+
+        let farm = Farm {
+            harvests: generate_harvests(&mut vec![(
+                mint,
+                generate_tps_history(&mut vec![(0, 100)])
+                    .try_into()
+                    .unwrap(),
+            )])
+            .try_into()
+            .unwrap(),
+            snapshots: Snapshots {
+                ring_buffer_tip: 5,
+                ring_buffer: generate_snapshots(&mut vec![
+                    (0, 2_000),   // should ignore
+                    (10, 10_000), // should ignore
+                    (20, 10_000), // should ignore
+                    (30, 20_000), // should ignore
+                    (40, 20_000), // should account for
+                    (50, 20_000), // should account for
+                ])
+                .try_into()
+                .unwrap(),
+            },
+            ..Default::default()
+        };
+
+        set_clock(Slot { slot: 55 });
+        farmer.update_eligible_harvest(&farm)?;
+
+        assert_eq!(farmer.staked, TokenAmount { amount: 1_000 });
+        assert_eq!(farmer.calculate_next_harvest_from, Slot { slot: 56 });
+        assert_eq!(farmer.harvests[1].mint, mint);
+        assert_eq!(
+            farmer.harvests[1].tokens,
+            TokenAmount {
+                //slot= 40   50
+                amount: 25 + 25
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_skips_updates_eligible_harvest_when_all_snapshots_in_buffer_are_empty(
+    ) -> Result<()> {
+        let mut farmer = Farmer {
+            staked: TokenAmount { amount: 1_000 },
+            vested: TokenAmount { amount: 0 },
+            vested_at: Slot { slot: 0 },
+            calculate_next_harvest_from: Slot { slot: 0 },
+            ..Default::default()
+        };
+
+        let mint = Pubkey::new_unique();
+
+        let farm = Farm {
+            harvests: generate_harvests(&mut vec![(
+                mint,
+                generate_tps_history(&mut vec![(0, 100)])
+                    .try_into()
+                    .unwrap(),
+            )])
+            .try_into()
+            .unwrap(),
+            snapshots: Snapshots {
+                ring_buffer_tip: 0,
+                ring_buffer: [Snapshot::default(); consts::SNAPSHOTS_LEN],
+            },
+            ..Default::default()
+        };
+
+        set_clock(Slot { slot: 15 });
+        farmer.update_eligible_harvest(&farm)?;
+
+        // Notice that even if there is no increment in the harvest, we still
+        // increment calculate_next_harvest_from.
+        assert_eq!(farmer.calculate_next_harvest_from, Slot { slot: 16 });
+
+        assert_eq!(farmer.harvests[1].tokens, TokenAmount { amount: 0 });
+
+        Ok(())
     }
 }

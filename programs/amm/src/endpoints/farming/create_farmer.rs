@@ -4,7 +4,7 @@
 //!
 //! The [`Farmer`] account pubkey is a PDA with a seed which guarantees a single
 //! [`Farmer`] account per user:
-//! ```
+//! ```text
 //! [
 //!   "farmer",
 //!   farmPubkey,

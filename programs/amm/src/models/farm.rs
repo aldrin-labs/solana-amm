@@ -2,6 +2,7 @@
 
 use crate::models::{Slot, TokenAmount};
 use crate::prelude::*;
+use std::cmp::Ordering;
 
 /// To create a user incentive for token possession, we distribute time
 /// dependent rewards. A farmer stakes tokens of a mint `S`, ie. they lock them
@@ -164,7 +165,7 @@ impl Farm {
             return Ok(());
         }
 
-        // we know a priori that hasvest: TokensPerSlotHistory was at least
+        // we know a priori that harvest: TokensPerSlotHistory was at least
         // already initialized as a fixed number length array of default
         // elements so unwrap `.last()` is safe
         let oldest_token_per_slot_history =
@@ -244,15 +245,89 @@ impl Farm {
     }
 
     pub fn oldest_snapshot(&self) -> Snapshot {
-        let oldest_snapshot_index = if self.snapshots.ring_buffer_tip as usize
-            != consts::SNAPSHOTS_LEN - 1
+        self.snapshots.ring_buffer[self.oldest_snapshot_index()]
+    }
+
+    fn oldest_snapshot_index(&self) -> usize {
+        if self.snapshots.ring_buffer_tip as usize != consts::SNAPSHOTS_LEN - 1
         {
             self.snapshots.ring_buffer_tip as usize + 1
         } else {
             0
-        };
+        }
+    }
 
-        self.snapshots.ring_buffer[oldest_snapshot_index]
+    /// This method returns an iterator that only contains the snapshots that
+    /// have not been entirely used to calculate eligible harvest. This
+    /// includes the last snapshot, which corresponds to the open window.
+    /// The iterator is ready to be consumed from reverse order,
+    /// from the newest snapshot to the oldest.
+    ///
+    /// Given three snapshots starting at 5, 10 and 15, and given a
+    /// `calculate_next_harvest_from` = 12, then this method will return a
+    /// slice of length 2, containing the snapshots that start at 15 and 10.
+    /// However, when there is only the open window left to be harvested it will
+    /// retun an empty slice.
+    pub fn get_window_snapshots_eligible_to_harvest(
+        &self,
+        calculate_next_harvest_from: Slot,
+    ) -> impl Iterator<Item = &Snapshot> {
+        let tip = self.snapshots.ring_buffer_tip as usize;
+
+        // The inverted_tip is the tip of the buffer ring in reverse order.
+        // since we ar using `.rev()`, to make sure the iterator start at the
+        // open window we have to use `.skip(inverted_tip)` instead of
+        // `.skip(tip)`.
+        let inverted_tip = consts::SNAPSHOTS_LEN - tip - 1;
+
+        // note that this will not be "inverted" index
+        let oldest_unclaimed_snapshot_index = self
+            .snapshots
+            .ring_buffer
+            .iter()
+            .enumerate()
+            // going through the iterator in reverse order,
+            // starting form the ring buffer tip is the most efficient way
+            .rev()
+            .cycle()
+            .skip(inverted_tip)
+            // to avoid the risk of looping forever if the skip_while
+            // condition is met entirely through the ring buffer.
+            .take(consts::SNAPSHOTS_LEN)
+            // find first snapshot which was taken before last calculation,
+            // we're inclusive with `calculate_next_harvest_from`
+            .find(|(_, snapshot)| {
+                snapshot.started_at.slot <= calculate_next_harvest_from.slot
+            })
+            .map(|(index, _)| index)
+            .unwrap_or_else(|| self.oldest_snapshot_index());
+
+        let eligible_snapshots_count =
+            match oldest_unclaimed_snapshot_index.cmp(&tip) {
+                Ordering::Less => {
+                    // The addition of one refers to the open window
+                    self.snapshots.ring_buffer_tip
+                        - (oldest_unclaimed_snapshot_index as u64)
+                        + 1
+                }
+                Ordering::Equal => 1, // Returns only the open window
+                Ordering::Greater => {
+                    // tip + diff(snapshot len and oldest unclaimed snapshot) +
+                    // 1 (for the open window)
+                    self.snapshots.ring_buffer_tip
+                        + ((consts::SNAPSHOTS_LEN as u64)
+                            - (oldest_unclaimed_snapshot_index as u64))
+                        + 1
+                }
+            };
+
+        self.snapshots
+            .ring_buffer
+            .iter()
+            .rev()
+            .cycle()
+            .skip(inverted_tip)
+            .take(eligible_snapshots_count as usize)
     }
 
     /// This method contains the core logic of the take_snapshot endpoint.
@@ -324,6 +399,7 @@ mod tests {
     use super::*;
     use crate::prelude::utils;
     use serial_test::serial;
+    use std::iter;
 
     #[test]
     fn it_matches_harvest_tokens_per_slot_with_const() {
@@ -840,5 +916,417 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    #[serial]
+    fn it_gets_window_snapshots_eligible_to_harvest() -> Result<()> {
+        // This test asserts that the associated function
+        // `gets_window_snapshots_eligible` returns the expected
+        // eligible snapshots. For this example we have snapshots ranging
+        // from slots 0, 10, 20, ..., 50, whereas snapshot 50 is the current
+        // open window and the curent slot is 55.
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: 5,
+                ring_buffer: utils::generate_snapshots(&mut vec![
+                    (0, 2_000),
+                    (10, 10_000),
+                    (20, 10_000),
+                    (30, 10_000),
+                    (40, 10_000),
+                    (50, 20_000),
+                ])
+                .try_into()
+                .unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 35 };
+        utils::set_clock(Slot { slot: 55 });
+
+        let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 20_000 },
+                started_at: Slot { slot: 50 },
+            })
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 40 },
+            })
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 30 },
+            })
+        );
+
+        assert_eq!(snapshot_iter.next(), None);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_gets_only_open_if_calculate_next_harvest_from_eq_or_gt_last_snapshot_slot(
+    ) -> Result<()> {
+        // The intuition behind this test is that the method
+        // `get_window_snapshots_eligible_to_harvest` should return
+        // an iterator with only the open window if the
+        // `calculate_next_harvest_from` is equal to the last snapshot slot.
+
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: 1,
+                ring_buffer: utils::generate_snapshots(&mut vec![
+                    (0, 2_000),
+                    (10, 10_000),
+                ])
+                .try_into()
+                .unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 11 };
+        utils::set_clock(Slot { slot: 12 });
+
+        let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 10 },
+            })
+        );
+
+        assert_eq!(snapshot_iter.next(), None);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_gets_snapshots_from_last_ring_buffer_cycle() -> Result<()> {
+        let mut snapshots_buffer: Vec<Snapshot> =
+            utils::generate_snapshots(&mut vec![(50, 2_000), (60, 10_000)]);
+
+        snapshots_buffer[999] = Snapshot {
+            staked: TokenAmount { amount: 100 },
+            started_at: Slot { slot: 40 },
+        };
+
+        snapshots_buffer[998] = Snapshot {
+            staked: TokenAmount { amount: 100 },
+            started_at: Slot { slot: 30 },
+        };
+
+        snapshots_buffer[997] = Snapshot {
+            staked: TokenAmount { amount: 100 },
+            started_at: Slot { slot: 20 },
+        };
+
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: 1,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 45 };
+        utils::set_clock(Slot { slot: 65 });
+
+        let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        // Expect first 3 results to be snapshot and last one to be None
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 60 },
+            })
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 2_000 },
+                started_at: Slot { slot: 50 },
+            })
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 100 },
+                started_at: Slot { slot: 40 },
+            })
+        );
+
+        assert_eq!(snapshot_iter.next(), None);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_gets_snapshots_eligible_for_harvest_if_history_is_lost(
+    ) -> Result<()> {
+        let snapshots_buffer: Vec<Snapshot> =
+            utils::generate_snapshots(&mut vec![(70, 2_000), (80, 10_000)]);
+
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: 1,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 55 };
+        utils::set_clock(Slot { slot: 82 });
+
+        let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        // Expect first 3 results to be snapshot and last one to be None
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 10_000 },
+                started_at: Slot { slot: 80 },
+            })
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 2_000 },
+                started_at: Slot { slot: 70 },
+            })
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 0 },
+                started_at: Slot { slot: 0 },
+            })
+        );
+
+        assert_eq!(snapshot_iter.next(), None);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_correctly_gets_snapshots_eligible_for_harvest_if_history_is_lost_and_ring_buffer_completed_full_cycle(
+    ) -> Result<()> {
+        let mut snapshots_buffer: Vec<Snapshot> =
+            utils::generate_snapshots(&mut vec![]);
+
+        for i in 1000..2000 {
+            snapshots_buffer[i - 1000] = Snapshot {
+                staked: TokenAmount { amount: 100 },
+                started_at: Slot { slot: i as u64 },
+            };
+        }
+
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: 999,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 900 };
+
+        let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        for i in (1000..2000).rev() {
+            assert_eq!(
+                snapshot_iter.next(),
+                Some(&Snapshot {
+                    staked: TokenAmount { amount: 100 },
+                    started_at: Slot { slot: i as u64 },
+                })
+            );
+        }
+
+        assert_eq!(snapshot_iter.next(), None);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_gets_snapshots_if_starting_from_slot_zero_and_tip_at_the_end(
+    ) -> Result<()> {
+        let snapshots_buffer: Vec<Snapshot> = utils::generate_snapshots(
+            &mut iter::repeat(1)
+                .enumerate()
+                .take(consts::SNAPSHOTS_LEN)
+                .map(|(i, a)| (i as u64 * 10 + 1, a))
+                .collect::<Vec<_>>(),
+        );
+
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: consts::SNAPSHOTS_LEN as u64 - 1,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 0 };
+        utils::set_clock(Slot { slot: 100 });
+
+        let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        assert_eq!(snapshot_iter.count(), consts::SNAPSHOTS_LEN);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_gets_snapshots_if_starting_from_slot_zero_and_buffer_not_rotated(
+    ) -> Result<()> {
+        let snapshots_buffer: Vec<Snapshot> = utils::generate_snapshots(
+            &mut iter::repeat(1)
+                .enumerate()
+                .take(consts::SNAPSHOTS_LEN - 500)
+                .map(|(i, a)| (i as u64 * 10 + 1, a))
+                .collect::<Vec<_>>(),
+        );
+
+        let farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: consts::SNAPSHOTS_LEN as u64 - 500 - 1,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            ..Default::default()
+        };
+
+        let calculate_next_harvest_from = Slot { slot: 0 };
+        utils::set_clock(Slot { slot: 100 });
+
+        let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        assert_eq!(snapshot_iter.count(), 501);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_gets_snapshots_if_starting_from_slot_zero_and_buffer_rotated(
+    ) -> Result<()> {
+        let snapshots_buffer: Vec<Snapshot> =
+            utils::generate_snapshots(&mut vec![(1, 1); consts::SNAPSHOTS_LEN]);
+
+        let mut farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: consts::SNAPSHOTS_LEN as u64 - 1,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            min_snapshot_window_slots: 1,
+            ..Default::default()
+        };
+
+        farm.take_snapshot(Slot::new(4), TokenAmount::new(1))?;
+        farm.take_snapshot(Slot::new(7), TokenAmount::new(1))?;
+        farm.take_snapshot(Slot::new(10), TokenAmount::new(1))?;
+
+        let calculate_next_harvest_from = Slot { slot: 0 };
+        utils::set_clock(Slot { slot: 100 });
+
+        let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        assert_eq!(snapshot_iter.count(), consts::SNAPSHOTS_LEN);
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_gets_snapshots_after_buffer_rotated() -> Result<()> {
+        let snapshots_buffer: Vec<Snapshot> =
+            utils::generate_snapshots(&mut vec![(1, 1); consts::SNAPSHOTS_LEN]);
+
+        let mut farm = Farm {
+            snapshots: Snapshots {
+                ring_buffer_tip: consts::SNAPSHOTS_LEN as u64 - 1,
+                ring_buffer: snapshots_buffer.try_into().unwrap(),
+            },
+            min_snapshot_window_slots: 1,
+            ..Default::default()
+        };
+
+        farm.take_snapshot(Slot::new(4), TokenAmount::new(1))?;
+        farm.take_snapshot(Slot::new(7), TokenAmount::new(1))?;
+        farm.take_snapshot(Slot::new(10), TokenAmount::new(1))?;
+
+        let calculate_next_harvest_from = Slot { slot: 4 };
+        utils::set_clock(Slot { slot: 100 });
+
+        let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
+            calculate_next_harvest_from,
+        );
+
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 1 },
+                started_at: Slot { slot: 10 },
+            })
+        );
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 1 },
+                started_at: Slot { slot: 7 },
+            })
+        );
+        assert_eq!(
+            snapshot_iter.next(),
+            Some(&Snapshot {
+                staked: TokenAmount { amount: 1 },
+                started_at: Slot { slot: 4 },
+            })
+        );
+        assert_eq!(snapshot_iter.next(), None);
+
+        Ok(())
     }
 }
