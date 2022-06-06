@@ -2,7 +2,14 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount, createMint } from "@solana/spl-token";
 import { Farm } from "../farm";
 import { assert, expect } from "chai";
-import { airdrop, errLogs, payer, provider, sleep } from "../helpers";
+import {
+  airdrop,
+  assertApproxCurrentSlot,
+  errLogs,
+  payer,
+  provider,
+  sleep,
+} from "../helpers";
 import { BN } from "bn.js";
 import { token } from "@project-serum/anchor/dist/cjs/utils";
 
@@ -92,9 +99,9 @@ export function test() {
       expect(harvestsAfter[0].mint).to.deep.eq(harvestMint);
 
       // assert that latest harvest was correctly updated
-      expect(
-        harvestsAfter[0].tokensPerSlot[0].at.slot.toNumber()
-      ).to.be.approximately(currentSlot, 3); // this test ensures that validFromSlot is correctly updated to currentSlot, in the case where validFromSlot = 0
+      // this test ensures that validFromSlot is correctly updated to
+      // currentSlot, in the case where validFromSlot = 0
+      await assertApproxCurrentSlot(harvestsAfter[0].tokensPerSlot[0].at);
 
       expect(harvestsAfter[0].tokensPerSlot[0].value.amount.toNumber()).to.eq(
         tokensPerSlot
@@ -126,9 +133,7 @@ export function test() {
       expect(harvestsAfter[0].mint).to.deep.eq(harvestMint);
 
       // assert that latest harvest was correctly updated
-      expect(
-        harvestsAfter[0].tokensPerSlot[0].at.slot.toNumber()
-      ).to.be.approximately(validFromSlot, 3);
+      await assertApproxCurrentSlot(harvestsAfter[0].tokensPerSlot[0].at);
       expect(harvestsAfter[0].tokensPerSlot[0].value.amount.toNumber()).to.eq(
         tokensPerSlot
       );

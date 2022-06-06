@@ -1,6 +1,13 @@
 import { amm, payer, provider } from "./helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { createAccount, createMint, transfer, mintTo } from "@solana/spl-token";
+import {
+  createAccount,
+  createMint,
+  transfer,
+  mintTo,
+  Account,
+  getAccount,
+} from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
 
 export interface InitFarmArgs {
@@ -333,17 +340,28 @@ export class Farm {
     );
 
     if (withAmount > 0) {
-      await mintTo(
-        provider.connection,
-        payer,
-        this.stakeMint,
-        stakeWallet,
-        owner,
-        withAmount
-      );
+      await this.airdropStakeTokens(stakeWallet, withAmount);
     }
 
     return stakeWallet;
+  }
+
+  public async stakeVaultInfo(): Promise<Account> {
+    return getAccount(provider.connection, await this.stakeVault());
+  }
+
+  public async airdropStakeTokens(
+    wallet: PublicKey,
+    amount: number = 1_000_000
+  ) {
+    return mintTo(
+      provider.connection,
+      payer,
+      this.stakeMint,
+      wallet,
+      this.admin,
+      amount
+    );
   }
 
   public async setFarmOwner(input: Partial<SetFarmOwner> = {}) {

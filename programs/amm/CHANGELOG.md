@@ -6,9 +6,18 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - 2022-06-01
+## [0.7.1] - 2022-06-06
 
 ### Added
+
+- Endpoint `start_farming` which _(i)_ updates eligible harvest; _(ii)_ stakes
+  user's tokens into a `Farmer`'s vested tokens and _(iii)_ transfers
+  that amount of tokens to the `Farm`'s stake vault.
+
+## [0.7.0] - 2022-06-03
+
+### Added
+
 - A method on `Farmer` model which calculates harvest in the snapshots history
   (excluding the open window).
 - A method on `Farmer` model which calls both methods to calculate harvest
@@ -17,10 +26,11 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
   for harvest in the snapshot ring buffer
 - Renamed field `farmer_harvest_calculated_until` to `calculate_next_harvest_from`
   in struct `Farm`.
-  
+
 ## [0.6.1] - 2022-06-01
 
 ### Added
+
 - Endpoint `create_farmer` logic implemented.
 
 ## [0.6.0] - 2022-06-01

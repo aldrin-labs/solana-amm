@@ -111,6 +111,17 @@ impl Farmer {
         Ok(())
     }
 
+    pub fn add_to_vested(&mut self, tokens: TokenAmount) -> Result<()> {
+        self.vested_at = Slot::current()?;
+        self.vested.amount = self
+            .vested
+            .amount
+            .checked_add(tokens.amount)
+            .ok_or(AmmError::MathOverflow)?;
+
+        Ok(())
+    }
+
     /// Calculates how many tokens for each harvest mint is the farmer eligible
     /// for by iterating over the snapshot history (if the farmer last harvest
     /// was before last snapshot) and then calculating it in the open window
@@ -1813,6 +1824,29 @@ mod tests {
         assert_eq!(farmer.calculate_next_harvest_from, Slot { slot: 16 });
 
         assert_eq!(farmer.harvests[1].tokens, TokenAmount { amount: 0 });
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_adds_to_vested() -> Result<()> {
+        let mut farmer = Farmer::default();
+
+        set_clock(Slot::new(15));
+        farmer.add_to_vested(TokenAmount::new(10))?;
+
+        assert_eq!(farmer.vested_at, Slot::new(15));
+        assert_eq!(farmer.vested, TokenAmount::new(10));
+
+        set_clock(Slot::new(20));
+        farmer.add_to_vested(TokenAmount::new(10))?;
+
+        assert_eq!(farmer.vested_at, Slot::new(20));
+        assert_eq!(farmer.vested, TokenAmount::new(20));
+
+        set_clock(Slot::new(25));
+        assert!(farmer.add_to_vested(TokenAmount::new(u64::MAX)).is_err());
 
         Ok(())
     }
