@@ -88,9 +88,9 @@ pub mod amm {
 
     pub fn stop_farming(
         ctx: Context<StopFarming>,
-        unstake: TokenAmount,
+        unstake_max: TokenAmount,
     ) -> Result<()> {
-        endpoints::farming::stop_farming::handle(ctx, unstake)
+        endpoints::farming::stop_farming::handle(ctx, unstake_max)
     }
 
     pub fn update_eligible_harvest(

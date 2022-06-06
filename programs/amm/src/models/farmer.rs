@@ -86,6 +86,14 @@ impl Farmer {
     /// farmer account prefix constant
     pub const ACCOUNT_PREFIX: &'static [u8; 6] = b"farmer";
 
+    pub fn total_deposited(&self) -> Result<TokenAmount> {
+        self.staked
+            .amount
+            .checked_add(self.vested.amount)
+            .ok_or_else(|| error!(AmmError::MathOverflow))
+            .map(TokenAmount::new)
+    }
+
     /// Checks if the vested tokens can be moved to staked tokens. This method
     /// must be called before any other action is taken regarding the farmer's
     /// account.
@@ -120,6 +128,24 @@ impl Farmer {
             .ok_or(AmmError::MathOverflow)?;
 
         Ok(())
+    }
+
+    pub fn unstake(&mut self, max: TokenAmount) -> Result<TokenAmount> {
+        if self.vested >= max {
+            self.vested.amount -= max.amount;
+            Ok(max)
+        } else {
+            let total = self.total_deposited()?;
+            if total > max {
+                self.staked.amount -= max.amount - self.vested.amount;
+                self.vested.amount = 0;
+                Ok(max)
+            } else {
+                self.staked.amount = 0;
+                self.vested.amount = 0;
+                Ok(total)
+            }
+        }
     }
 
     /// Calculates how many tokens for each harvest mint is the farmer eligible
@@ -1847,6 +1873,85 @@ mod tests {
 
         set_clock(Slot::new(25));
         assert!(farmer.add_to_vested(TokenAmount::new(u64::MAX)).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn it_unstakes_when_unstake_max_is_gt_vested() -> Result<()> {
+        let mut farmer = Farmer::default();
+        set_clock(Slot::new(15));
+
+        farmer.staked.amount = 30;
+        farmer.add_to_vested(TokenAmount::new(10))?;
+
+        farmer.unstake(TokenAmount::new(20))?;
+
+        assert_eq!(farmer.vested, TokenAmount::new(0));
+        assert_eq!(farmer.staked, TokenAmount::new(20));
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_unstakes_when_unstake_max_is_lt_vested() -> Result<()> {
+        let mut farmer = Farmer::default();
+
+        farmer.vested.amount = 15;
+
+        farmer.unstake(TokenAmount::new(10))?;
+
+        assert_eq!(farmer.vested, TokenAmount::new(5));
+        assert_eq!(farmer.staked, TokenAmount::new(0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_unstakes_when_unstake_max_is_eq_vested() -> Result<()> {
+        let mut farmer = Farmer::default();
+        set_clock(Slot::new(15));
+
+        farmer.staked.amount = 30;
+        farmer.vested.amount = 10;
+
+        farmer.unstake(TokenAmount::new(10))?;
+
+        assert_eq!(farmer.vested, TokenAmount::new(0));
+        assert_eq!(farmer.staked, TokenAmount::new(30));
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_unstakes_when_unstake_max_is_gt_vested_and_staked() -> Result<()> {
+        let mut farmer = Farmer::default();
+
+        farmer.staked.amount = 10;
+        farmer.vested.amount = 10;
+
+        farmer.unstake(TokenAmount::new(100))?;
+
+        assert_eq!(farmer.vested, TokenAmount::new(0));
+        assert_eq!(farmer.staked, TokenAmount::new(0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_computes_total_deposited() -> Result<()> {
+        let mut farmer = Farmer::default();
+
+        let mut total_deposited = farmer.total_deposited()?;
+        assert_eq!(total_deposited, TokenAmount::new(0));
+
+        farmer.staked.amount = 30;
+        farmer.vested.amount = 70;
+
+        total_deposited = farmer.total_deposited()?;
+
+        assert_eq!(total_deposited, TokenAmount::new(100));
 
         Ok(())
     }

@@ -23,6 +23,8 @@ pub enum AmmError {
     UnknownHarvestMintPubKey,
     #[msg("The limit of configuration updates has been already exceeded within the snapshot history")]
     ConfigurationUpdateLimitExceeded,
+    #[msg("One of the provided input arguments is invalid")]
+    InvalidArg,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {
