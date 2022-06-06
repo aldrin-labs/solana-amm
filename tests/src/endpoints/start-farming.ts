@@ -74,13 +74,12 @@ export function test() {
       expect(Number(amount)).to.eq(10);
     });
 
-    it("is noop if stake amount is zero", async () => {
-      const farmerInfoBefore = await farmer.fetch();
-      await farmer.startFarming(0);
-      await farmer.startFarming(0);
-      const farmerInfoAfter = await farmer.fetch();
+    it("is fails if stake amount is zero", async () => {
+      const logs = await errLogs(farmer.startFarming(0));
 
-      expect(farmerInfoAfter).to.deep.eq(farmerInfoBefore);
+      expect(logs).to.contain(
+        "The provided stake amount needs to be bigger than zero"
+      );
     });
 
     it("adds farmer's funds to vested", async () => {

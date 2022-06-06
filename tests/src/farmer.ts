@@ -18,6 +18,15 @@ export interface StartFarmingArgs {
   stakeWallet: PublicKey;
 }
 
+export interface StopFarmingArgs {
+  authority: Keypair;
+  farm: PublicKey;
+  skipAuthoritySignature: boolean;
+  stakeVault: PublicKey;
+  stakeWallet: PublicKey;
+  farmSignerPda: PublicKey;
+}
+
 export class Farmer {
   public async id(): Promise<PublicKey> {
     const [pda, _] = await Farmer.signerFrom(
@@ -115,6 +124,41 @@ export class Farmer {
         stakeVault,
         stakeWallet,
         walletAuthority: authority.publicKey,
+      })
+      .signers(signers)
+      .rpc();
+  }
+
+  public async stopFarming(
+    amount: number,
+    input: Partial<StopFarmingArgs> = {}
+  ) {
+    const farm = input.farm ?? this.farm.id;
+    const skipAuthoritySignature = input.skipAuthoritySignature ?? false;
+    const stakeWallet = input.stakeWallet ?? (await this.stakeWallet()).address;
+    const authority = input.authority ?? this.authority;
+    const stakeVault = input.stakeVault ?? (await this.farm.stakeVault());
+
+    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+      [Buffer.from("signer"), this.farm.id.toBytes()],
+      amm.programId
+    );
+    const farmSignerPda = input.farmSignerPda ?? correctPda;
+
+    const signers = [];
+    if (!skipAuthoritySignature) {
+      signers.push(authority);
+    }
+
+    await amm.methods
+      .stopFarming({ amount: new BN(amount) })
+      .accounts({
+        authority: authority.publicKey,
+        farmer: await this.id(),
+        stakeWallet,
+        farm,
+        farmSignerPda,
+        stakeVault,
       })
       .signers(signers)
       .rpc();

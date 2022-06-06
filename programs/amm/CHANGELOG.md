@@ -6,6 +6,15 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2022-06-06
+
+### Added
+
+- Endpoint `stop_farming` which _(i)_ updates eligible harvest; _(ii)_ removes
+  user's tokens in `Farmer` from either vested or staked funds, or both;
+  _(iii)_ transfers that amount of tokens requested to unstake from the
+  `Farm`'s stake vault to user's wallet.
+
 ## [0.7.1] - 2022-06-06
 
 ### Added

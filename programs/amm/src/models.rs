@@ -15,6 +15,8 @@ use crate::prelude::*;
     Default,
     Eq,
     PartialEq,
+    Ord,
+    PartialOrd,
 )]
 pub struct TokenAmount {
     pub amount: u64,
@@ -29,6 +31,8 @@ pub struct TokenAmount {
     Default,
     Eq,
     PartialEq,
+    Ord,
+    PartialOrd,
 )]
 pub struct Slot {
     pub slot: u64,
