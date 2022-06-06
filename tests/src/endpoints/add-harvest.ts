@@ -1,4 +1,9 @@
-import { airdrop, errLogs, provider } from "../helpers";
+import {
+  airdrop,
+  assertApproxCurrentSlot,
+  errLogs,
+  provider,
+} from "../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import { expect } from "chai";
@@ -106,18 +111,14 @@ export function test() {
       // The slot of update should be approximately current slot and the
       // rho should be as provided in the argument. All the other fields in the
       // tokens per slot history array should be default.
-      expect(
-        harvests[0].tokensPerSlot[0].at.slot.toNumber()
-      ).to.be.approximately(currentSlot, 3);
+      await assertApproxCurrentSlot(harvests[0].tokensPerSlot[0].at);
       expect(harvests[0].tokensPerSlot[0].value.amount.toNumber()).to.eq(0);
       harvests[0].tokensPerSlot.slice(1).forEach(({ value, at }) => {
         expect(value.amount.toNumber()).to.eq(0);
         expect(at.slot.toNumber()).to.eq(0);
       });
 
-      expect(
-        harvests[1].tokensPerSlot[0].at.slot.toNumber()
-      ).to.be.approximately(currentSlot, 3);
+      await assertApproxCurrentSlot(harvests[1].tokensPerSlot[0].at);
       expect(harvests[1].tokensPerSlot[0].value.amount.toNumber()).to.eq(
         harvest2Rho
       );

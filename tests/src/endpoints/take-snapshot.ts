@@ -1,7 +1,13 @@
 import { PublicKey } from "@solana/web3.js";
 import { expect } from "chai";
 
-import { payer, provider, errLogs, sleep } from "../helpers";
+import {
+  payer,
+  provider,
+  errLogs,
+  sleep,
+  assertApproxCurrentSlot,
+} from "../helpers";
 import { Farm } from "../farm";
 
 export function test() {
@@ -70,18 +76,13 @@ export function test() {
 
         tip++;
 
-        const currentSlot = await provider.connection.getSlot();
-
         const farmInfoAfter = await farm.fetch();
 
         const snapshots = farmInfoAfter.snapshots;
         const ringBuffer = snapshots.ringBuffer as any[];
 
         expect(snapshots.ringBufferTip.toNumber()).to.eq(tip);
-        expect(ringBuffer[tip].startedAt.slot.toNumber()).to.be.approximately(
-          currentSlot,
-          1
-        );
+        await assertApproxCurrentSlot(ringBuffer[tip].startedAt);
         expect(ringBuffer[tip].staked.amount.toNumber()).to.eq(
           cumulatedStaking
         );

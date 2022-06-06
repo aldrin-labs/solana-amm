@@ -3,10 +3,12 @@ import {
   Program,
   setProvider,
   workspace,
+  BN,
 } from "@project-serum/anchor";
 import { PublicKey } from "@solana/web3.js";
 import NodeWallet from "@project-serum/anchor/dist/cjs/nodewallet";
 import { Amm } from "../../target/types/amm";
+import { expect } from "chai";
 
 export const provider = AnchorProvider.local();
 setProvider(provider);
@@ -38,4 +40,14 @@ export async function airdrop(to: PublicKey, amount: number = 100_000_000_000) {
 
 export async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
+}
+
+export async function assertApproxCurrentSlot(
+  input: { slot: BN },
+  delta: number = 2
+) {
+  expect(input.slot.toNumber()).to.be.approximately(
+    await provider.connection.getSlot(),
+    delta
+  );
 }
