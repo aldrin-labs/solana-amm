@@ -27,6 +27,10 @@ export interface StopFarmingArgs {
   farmSignerPda: PublicKey;
 }
 
+export interface UpdateEligibleHarvestArgs {
+  farm: PublicKey;
+}
+
 export class Farmer {
   public async id(): Promise<PublicKey> {
     const [pda, _] = await Farmer.signerFrom(
@@ -161,6 +165,20 @@ export class Farmer {
         stakeVault,
       })
       .signers(signers)
+      .rpc();
+  }
+
+  public async updateEligibleHarvest(
+    input: Partial<UpdateEligibleHarvestArgs> = {}
+  ) {
+    const farm = input.farm ?? this.farm.id;
+
+    await amm.methods
+      .updateEligibleHarvest()
+      .accounts({
+        farmer: await this.id(),
+        farm,
+      })
       .rpc();
   }
 }

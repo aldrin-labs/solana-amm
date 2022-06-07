@@ -1,5 +1,7 @@
 pub mod farm;
 pub mod farmer;
+#[cfg(test)]
+mod tests;
 
 pub use farm::*;
 pub use farmer::*;

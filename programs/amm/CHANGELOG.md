@@ -6,6 +6,22 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2022-06-06
+
+### Added
+
+- Endpoint `update_eligible_harvest` which moves funds from vested to staked
+  and calculates harvest since last update. This is also what happens in
+  `start_farming` and `stop_farming`.
+- Wrapped `add_to_vested` and `update_eligible_harvest` methods on `Farmer`
+  to `check_vested_period_and_update_harvest`.
+- Changed logic for slot calculation in `update_eligible_harvest_in_open_window`
+  to account for missing slot. The slots were being calculated by subtracting 
+  `current_slot` by `calculate_next_harvest_from.slot`, however since we want
+  to include the current slot in the calculation we change it it by adding 1
+  to the equation, therefore making it `current_slot + 1` subtracted
+  by `calculate_next_harvest_from.slot`.
+
 ## [0.7.2] - 2022-06-06
 
 ### Added

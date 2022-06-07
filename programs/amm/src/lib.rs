@@ -9,7 +9,7 @@ pub mod consts;
 pub mod endpoints;
 pub mod err;
 pub mod models;
-mod prelude;
+pub mod prelude;
 
 use crate::prelude::*;
 use endpoints::*;

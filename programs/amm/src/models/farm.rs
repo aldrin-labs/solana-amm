@@ -3,6 +3,7 @@
 use crate::models::{Slot, TokenAmount};
 use crate::prelude::*;
 use std::cmp::Ordering;
+use std::iter;
 
 /// To create a user incentive for token possession, we distribute time
 /// dependent rewards. A farmer stakes tokens of a mint `S`, ie. they lock them
@@ -139,6 +140,51 @@ impl Farm {
     pub const SIGNER_PDA_PREFIX: &'static [u8; 6] = b"signer";
     pub const STAKE_VAULT_PREFIX: &'static [u8; 11] = b"stake_vault";
 
+    pub fn add_harvest(
+        &mut self,
+        harvest_mint: Pubkey,
+        harvest_vault: Pubkey,
+        tokens_per_slot: TokenAmount,
+    ) -> Result<()> {
+        // this should also be checked by the PDA seed, that is the harvest
+        // vault key will already exist and `init` will fail
+        let already_exists =
+            self.harvests.iter().any(|h| h.mint == harvest_mint);
+        if already_exists {
+            return Err(error!(err::acc("Harvest mint already exists")));
+        }
+
+        if let Some(harvest) = self
+            .harvests
+            .iter_mut()
+            .find(|h| h.mint == Pubkey::default())
+        {
+            harvest.mint = harvest_mint;
+            harvest.vault = harvest_vault;
+            // we could also just write to zeroth index, because the array
+            // should be all zeroes, but let's overwrite the whole
+            // array anyway
+            harvest.tokens_per_slot = iter::once(TokensPerSlotHistory {
+                value: tokens_per_slot,
+                at: Slot::current()?,
+            })
+            .chain(iter::repeat(TokensPerSlotHistory::default()))
+            .take(consts::TOKENS_PER_SLOT_HISTORY_LEN)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| {
+                msg!(
+                    "Cannot convert tokens per slot history vector into array"
+                );
+                AmmError::InvariantViolation
+            })?;
+
+            Ok(())
+        } else {
+            Err(error!(err::acc("Reached maximum harvest mints")))
+        }
+    }
+
     pub fn set_tokens_per_slot(
         &mut self,
         oldest_snapshot: Snapshot,
@@ -195,51 +241,6 @@ impl Farm {
 
         Ok(())
     }
-}
-
-impl Harvest {
-    pub const VAULT_PREFIX: &'static [u8; 13] = b"harvest_vault";
-
-    /// Returns the last change to ρ before or at a given slot.
-    ///
-    /// # Important
-    /// If the admin changes ρ during an open snapshot window, it should only be
-    /// considered from the next snapshot. This method _does not account_ for
-    /// that invariant.
-    ///
-    /// # Returns
-    /// First tuple member is the ρ itself, second tuple member returns the slot
-    /// of the _next_ ρ change if any ([`None`] if latest.)
-    pub fn tokens_per_slot(&self, at: Slot) -> (TokenAmount, Option<Slot>) {
-        match self
-            .tokens_per_slot
-            .iter()
-            .position(|tps| tps.at.slot <= at.slot)
-        {
-            Some(0) => (self.tokens_per_slot[0].value, None),
-            Some(i) => (
-                self.tokens_per_slot[i].value,
-                Some(self.tokens_per_slot[i - 1].at),
-            ),
-            None => {
-                msg!("There is no ρ history for the farm at {}", at.slot);
-                (
-                    // no history = harvest lost
-                    TokenAmount { amount: 0 },
-                    // find the oldest (hence rev) change to the setting
-                    self.tokens_per_slot
-                        .iter()
-                        .rev()
-                        .find(|tps| tps.value.amount != 0)
-                        .map(|tps| tps.at)
-                        .or(Some(self.tokens_per_slot[0].at)),
-                )
-            }
-        }
-    }
-}
-
-impl Farm {
     pub fn latest_snapshot(&self) -> Snapshot {
         self.snapshots.ring_buffer[self.snapshots.ring_buffer_tip as usize]
     }
@@ -391,6 +392,48 @@ impl Farm {
         };
 
         Ok(())
+    }
+}
+
+impl Harvest {
+    pub const VAULT_PREFIX: &'static [u8; 13] = b"harvest_vault";
+
+    /// Returns the last change to ρ before or at a given slot.
+    ///
+    /// # Important
+    /// If the admin changes ρ during an open snapshot window, it should only be
+    /// considered from the next snapshot. This method _does not account_ for
+    /// that invariant.
+    ///
+    /// # Returns
+    /// First tuple member is the ρ itself, second tuple member returns the slot
+    /// of the _next_ ρ change if any ([`None`] if latest.)
+    pub fn tokens_per_slot(&self, at: Slot) -> (TokenAmount, Option<Slot>) {
+        match self
+            .tokens_per_slot
+            .iter()
+            .position(|tps| tps.at.slot <= at.slot)
+        {
+            Some(0) => (self.tokens_per_slot[0].value, None),
+            Some(i) => (
+                self.tokens_per_slot[i].value,
+                Some(self.tokens_per_slot[i - 1].at),
+            ),
+            None => {
+                msg!("There is no ρ history for the farm at {}", at.slot);
+                (
+                    // no history = harvest lost
+                    TokenAmount { amount: 0 },
+                    // find the oldest (hence rev) change to the setting
+                    self.tokens_per_slot
+                        .iter()
+                        .rev()
+                        .find(|tps| tps.value.amount != 0)
+                        .map(|tps| tps.at)
+                        .or(Some(self.tokens_per_slot[0].at)),
+                )
+            }
+        }
     }
 }
 
