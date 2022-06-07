@@ -13,7 +13,6 @@
 
 use crate::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
-use std::iter;
 
 #[derive(Accounts)]
 pub struct AddHarvest<'info> {
@@ -64,40 +63,12 @@ pub fn handle(
     if farm.admin != accounts.admin.key() {
         return Err(error!(AmmError::FarmAdminMismatch));
     }
-    // this should also be checked by the PDA seed, that is the harvest vault
-    // key will already exist and `init` will fail
-    let already_exists = farm
-        .harvests
-        .iter()
-        .any(|h| h.mint == accounts.harvest_mint.key());
-    if already_exists {
-        return Err(error!(err::acc("Harvest mint already exists")));
-    }
 
-    if let Some(harvest) = farm
-        .harvests
-        .iter_mut()
-        .find(|h| h.mint == Pubkey::default())
-    {
-        harvest.mint = accounts.harvest_mint.key();
-        harvest.vault = accounts.harvest_vault.key();
-        // we could also just write to zeroth index, because the array should be
-        // all zeroes, but let's overwrite the whole array anyway
-        harvest.tokens_per_slot = iter::once(TokensPerSlotHistory {
-            value: tokens_per_slot,
-            at: Slot::current()?,
-        })
-        .chain(iter::repeat(TokensPerSlotHistory::default()))
-        .take(consts::TOKENS_PER_SLOT_HISTORY_LEN)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| {
-            msg!("Cannot convert tokens per slot history vector into array");
-            AmmError::InvariantViolation
-        })?;
-    } else {
-        return Err(error!(err::acc("Reached maximum harvest mints")));
-    }
+    farm.add_harvest(
+        accounts.harvest_mint.key(),
+        accounts.harvest_vault.key(),
+        tokens_per_slot,
+    )?;
 
     // init the token account for the harvest vault
     let signer_seed = &[

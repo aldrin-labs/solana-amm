@@ -13,6 +13,7 @@ import * as setFarmOwner from "./endpoints/set-farm-owner";
 import * as createFarmer from "./endpoints/create-farmer";
 import * as startFarming from "./endpoints/start-farming";
 import * as stopFarming from "./endpoints/stop-farming";
+import * as updateEligibleHarvest from "./endpoints/update-eligible-harvest";
 
 import { airdrop, provider } from "./helpers";
 
@@ -27,6 +28,7 @@ describe("farming", () => {
   createFarmer.test();
   startFarming.test();
   stopFarming.test();
+  updateEligibleHarvest.test();
 
   before("airdrop SOL to provider wallet", async () => {
     await airdrop(provider.wallet.publicKey);

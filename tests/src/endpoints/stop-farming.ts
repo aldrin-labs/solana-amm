@@ -51,7 +51,7 @@ export function test() {
       );
     });
 
-    it("if updates even if unstake max amount > stake amount", async () => {
+    it("it updates even if unstake max amount > stake amount", async () => {
       await farmer.airdropStakeTokens(10);
 
       await farmer.startFarming(10);

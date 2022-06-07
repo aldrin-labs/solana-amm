@@ -86,7 +86,18 @@ impl Farmer {
     /// farmer account prefix constant
     pub const ACCOUNT_PREFIX: &'static [u8; 6] = b"farmer";
 
-    pub fn total_deposited(&self) -> Result<TokenAmount> {
+    pub fn add_to_vested(&mut self, tokens: TokenAmount) -> Result<()> {
+        self.vested_at = Slot::current()?;
+        self.vested.amount = self
+            .vested
+            .amount
+            .checked_add(tokens.amount)
+            .ok_or(AmmError::MathOverflow)?;
+
+        Ok(())
+    }
+
+    fn total_deposited(&self) -> Result<TokenAmount> {
         self.staked
             .amount
             .checked_add(self.vested.amount)
@@ -94,10 +105,42 @@ impl Farmer {
             .map(TokenAmount::new)
     }
 
+    pub fn unstake(&mut self, max: TokenAmount) -> Result<TokenAmount> {
+        if self.vested >= max {
+            self.vested.amount -= max.amount;
+            Ok(max)
+        } else {
+            let total = self.total_deposited()?;
+            if total > max {
+                self.staked.amount -= max.amount - self.vested.amount;
+                self.vested.amount = 0;
+                Ok(max)
+            } else {
+                self.staked.amount = 0;
+                self.vested.amount = 0;
+                Ok(total)
+            }
+        }
+    }
+
+    /// Moves funds from vested to staked if possible and then calculates
+    /// harvest since last call.
+    pub fn check_vested_period_and_update_harvest(
+        &mut self,
+        farm: &Farm,
+    ) -> Result<()> {
+        // first mark funds which are beyond vesting period as staked
+        self.update_vested(farm.latest_snapshot().started_at)?;
+        // and then use the staked funds to calculate harvest until this slot
+        self.update_eligible_harvest(farm)?;
+
+        Ok(())
+    }
+
     /// Checks if the vested tokens can be moved to staked tokens. This method
     /// must be called before any other action is taken regarding the farmer's
     /// account.
-    pub fn refresh(&mut self, last_snapshot_window_end: Slot) -> Result<()> {
+    fn update_vested(&mut self, last_snapshot_window_end: Slot) -> Result<()> {
         // Use "less than" instead of "less or equal than" because the taking
         // a snapshot (the endpoint that determines new window) is always called
         // first by definition (it's after all what determines new window).
@@ -119,40 +162,11 @@ impl Farmer {
         Ok(())
     }
 
-    pub fn add_to_vested(&mut self, tokens: TokenAmount) -> Result<()> {
-        self.vested_at = Slot::current()?;
-        self.vested.amount = self
-            .vested
-            .amount
-            .checked_add(tokens.amount)
-            .ok_or(AmmError::MathOverflow)?;
-
-        Ok(())
-    }
-
-    pub fn unstake(&mut self, max: TokenAmount) -> Result<TokenAmount> {
-        if self.vested >= max {
-            self.vested.amount -= max.amount;
-            Ok(max)
-        } else {
-            let total = self.total_deposited()?;
-            if total > max {
-                self.staked.amount -= max.amount - self.vested.amount;
-                self.vested.amount = 0;
-                Ok(max)
-            } else {
-                self.staked.amount = 0;
-                self.vested.amount = 0;
-                Ok(total)
-            }
-        }
-    }
-
     /// Calculates how many tokens for each harvest mint is the farmer eligible
     /// for by iterating over the snapshot history (if the farmer last harvest
     /// was before last snapshot) and then calculating it in the open window
     /// too.
-    pub fn update_eligible_harvest(&mut self, farm: &Farm) -> Result<()> {
+    fn update_eligible_harvest(&mut self, farm: &Farm) -> Result<()> {
         let farm_harvests: BTreeMap<_, _> =
             farm.harvests.iter().map(|h| (h.mint, h)).collect();
         let mut farmer_harvests: BTreeMap<_, _> =
@@ -291,7 +305,7 @@ fn update_eligible_harvest_in_open_window(
         let (tps, _) = farm_harvest.tokens_per_slot(open_window.started_at);
         // We don't have to check for underflow because of a condition in
         // the beginning of the method.
-        let slots = current_slot - calculate_next_harvest_from.slot;
+        let slots = (current_slot + 1) - calculate_next_harvest_from.slot;
         let eligible_harvest = Decimal::from(slots)
             .try_mul(Decimal::from(tps.amount))?
             .try_mul(farmer_share)?
@@ -450,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn it_doesnt_refresh_farmer_if_vesting_amount_is_zero() {
+    fn it_doesnt_update_vested_if_vesting_amount_is_zero() {
         let mut farmer = Farmer {
             staked: TokenAmount { amount: 0 },
             vested: TokenAmount { amount: 0 },
@@ -459,12 +473,12 @@ mod tests {
         };
         let farmer_before_refresh = farmer.clone();
 
-        assert!(farmer.refresh(Slot { slot: 1 }).is_ok());
+        assert!(farmer.update_vested(Slot { slot: 1 }).is_ok());
         assert_eq!(farmer, farmer_before_refresh);
     }
 
     #[test]
-    fn it_doesnt_refresh_farmer_if_vested_at_is_eq_or_gt_than_last_snapshot_window_end(
+    fn it_doesnt_update_vested_if_vested_at_is_eq_or_gt_than_last_snapshot_window_end(
     ) {
         let mut farmer = Farmer {
             staked: TokenAmount { amount: 0 },
@@ -474,15 +488,15 @@ mod tests {
         };
         let farmer_before_refresh = farmer.clone();
 
-        assert!(farmer.refresh(Slot { slot: 5 }).is_ok());
+        assert!(farmer.update_vested(Slot { slot: 5 }).is_ok());
         assert_eq!(farmer, farmer_before_refresh);
 
-        assert!(farmer.refresh(Slot { slot: 6 }).is_ok());
+        assert!(farmer.update_vested(Slot { slot: 6 }).is_ok());
         assert_eq!(farmer, farmer_before_refresh);
     }
 
     #[test]
-    fn it_errs_refresh_if_vested_overflows_staked() {
+    fn it_errs_update_vested_if_vested_overflows_staked() {
         let mut farmer = Farmer {
             staked: TokenAmount { amount: u64::MAX },
             vested: TokenAmount { amount: u64::MAX },
@@ -490,11 +504,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(farmer.refresh(Slot { slot: 6 }).is_err());
+        assert!(farmer.update_vested(Slot { slot: 6 }).is_err());
     }
 
     #[test]
-    fn it_refreshes() {
+    fn it_updates_vested() {
         let mut farmer = Farmer {
             staked: TokenAmount { amount: 10 },
             vested: TokenAmount { amount: 10 },
@@ -502,7 +516,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(farmer.refresh(Slot { slot: 5 }).is_ok());
+        assert!(farmer.update_vested(Slot { slot: 5 }).is_ok());
 
         assert_eq!(farmer.vested_at, Slot { slot: 0 });
         assert_eq!(farmer.vested, TokenAmount { amount: 0 });
@@ -674,7 +688,7 @@ mod tests {
                 (
                     mint1,
                     TokenAmount::new(
-                        10 + (current_slot - calculate_next_harvest_from)
+                        10 + (current_slot + 1 - calculate_next_harvest_from)
                             * harvest1_rho
                             * farmer_staked
                             / total_staked
@@ -683,7 +697,7 @@ mod tests {
                 (
                     mint2,
                     TokenAmount::new(
-                        (current_slot - calculate_next_harvest_from)
+                        (current_slot + 1 - calculate_next_harvest_from)
                             * harvest2_rho
                             * farmer_staked
                             / total_staked
@@ -1670,8 +1684,9 @@ mod tests {
         assert_eq!(
             farmer.harvests[1].tokens,
             TokenAmount {
-                // slot=  0   10   20   30   40   50
-                amount: 125 + 50 + 50 + 25 + 50 + 25
+                // last reward is 30 because it includes 6 slots
+                // slot=  0   10   20   30   40   50->56
+                amount: 125 + 50 + 50 + 25 + 50 + 30
             }
         );
 
@@ -1730,8 +1745,8 @@ mod tests {
         assert_eq!(
             farmer.harvests[1].tokens,
             TokenAmount {
-                // slot=  0   10   20   30   40   50
-                amount: 125 + 50 + 50 + 25 + 50 + 25
+                // slot=  0   10   20   30   40   50->56
+                amount: 125 + 50 + 50 + 25 + 50 + 30
             }
         );
 
@@ -1743,8 +1758,8 @@ mod tests {
         assert_eq!(
             farmer.harvests[1].tokens,
             TokenAmount {
-                // slot=  0   10   20   30   40   50
-                amount: 125 + 50 + 50 + 25 + 50 + 25
+                // slot=  0   10   20   30   40   50->56
+                amount: 125 + 50 + 50 + 25 + 50 + 30
             }
         );
         Ok(())
@@ -1804,8 +1819,8 @@ mod tests {
         assert_eq!(
             farmer.harvests[1].tokens,
             TokenAmount {
-                //slot= 40   50
-                amount: 25 + 25
+                //slot= 40   50->56
+                amount: 25 + 30
             }
         );
 

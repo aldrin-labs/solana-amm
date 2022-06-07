@@ -54,10 +54,9 @@ pub fn handle(
 
     let farm = accounts.farm.load()?;
 
-    // first mark funds which are beyond vesting period as staked
-    accounts.farmer.refresh(farm.latest_snapshot().started_at)?;
-    // and then use the staked funds to calculate harvest until this slot
-    accounts.farmer.update_eligible_harvest(&farm)?;
+    accounts
+        .farmer
+        .check_vested_period_and_update_harvest(&farm)?;
 
     // removes the amount of tokens to be unstaked from the
     let unstake = accounts.farmer.unstake(unstake_max)?;
