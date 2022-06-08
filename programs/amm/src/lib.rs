@@ -99,8 +99,8 @@ pub mod amm {
         endpoints::farming::update_eligible_harvest::handle(ctx)
     }
 
-    pub fn claim_eligible_harvest(
-        ctx: Context<ClaimEligibleHarvest>,
+    pub fn claim_eligible_harvest<'info>(
+        ctx: Context<'_, '_, '_, 'info, ClaimEligibleHarvest<'info>>,
     ) -> Result<()> {
         endpoints::farming::claim_eligible_harvest::handle(ctx)
     }

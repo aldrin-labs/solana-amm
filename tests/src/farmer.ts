@@ -1,5 +1,5 @@
 import { airdrop, amm, provider } from "./helpers";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey, AccountMeta } from "@solana/web3.js";
 import { Farm } from "./farm";
 import { Account, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
@@ -29,6 +29,12 @@ export interface StopFarmingArgs {
 
 export interface UpdateEligibleHarvestArgs {
   farm: PublicKey;
+}
+
+export interface ClaimEligibleHarvestArgs {
+  authority: Keypair;
+  skipAuthoritySignature: boolean;
+  farmSignerPda: PublicKey;
 }
 
 export class Farmer {
@@ -105,6 +111,19 @@ export class Farmer {
     return this.farm.airdropStakeTokens(address, amount);
   }
 
+  public async harvestWallet(mint: PublicKey): Promise<Account> {
+    return getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      this.authority,
+      mint,
+      this.authority.publicKey
+    );
+  }
+
+  public async harvestWalletPubkey(mint: PublicKey): Promise<PublicKey> {
+    return (await this.harvestWallet(mint)).address;
+  }
+
   public async startFarming(
     amount: number,
     input: Partial<StartFarmingArgs> = {}
@@ -179,6 +198,51 @@ export class Farmer {
         farmer: await this.id(),
         farm,
       })
+      .rpc();
+  }
+
+  public async claimEligibleHarvest(
+    vaultWalletPairs: [PublicKey, PublicKey][],
+    input: Partial<ClaimEligibleHarvestArgs> = {}
+  ) {
+    const authority = input.authority ?? this.authority;
+    const skipAuthoritySignature = input.skipAuthoritySignature ?? false;
+
+    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+      [Buffer.from("signer"), this.farm.id.toBytes()],
+      amm.programId
+    );
+    const farmSignerPda = input.farmSignerPda ?? correctPda;
+
+    const remainingAccounts: AccountMeta[] = vaultWalletPairs
+      .map((tuple) => [
+        {
+          pubkey: tuple[0],
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: tuple[1],
+          isSigner: false,
+          isWritable: true,
+        },
+      ])
+      .flat();
+
+    const signers = [];
+    if (!skipAuthoritySignature) {
+      signers.push(authority);
+    }
+
+    await amm.methods
+      .claimEligibleHarvest()
+      .accounts({
+        authority: authority.publicKey,
+        farmer: await this.id(),
+        farmSignerPda,
+      })
+      .remainingAccounts(remainingAccounts)
+      .signers(signers)
       .rpc();
   }
 }

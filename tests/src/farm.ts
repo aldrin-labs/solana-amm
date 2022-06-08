@@ -364,6 +364,21 @@ export class Farm {
     );
   }
 
+  public async airdropHarvestTokens(
+    harvestMint: PublicKey,
+    destination: PublicKey,
+    amount: number = 1_000_000
+  ) {
+    await mintTo(
+      provider.connection,
+      payer,
+      harvestMint,
+      destination,
+      this.admin,
+      amount
+    );
+  }
+
   public async setFarmOwner(input: Partial<SetFarmOwner> = {}) {
     const admin = input.admin ?? this.admin;
     const farm = input.farm ?? this.id;
