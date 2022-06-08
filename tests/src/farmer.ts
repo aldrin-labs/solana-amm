@@ -18,6 +18,12 @@ export interface StartFarmingArgs {
   stakeWallet: PublicKey;
 }
 
+export interface CloseFarmerArgs {
+  authority: Keypair;
+  skipAuthoritySignature: boolean;
+  farmer: PublicKey;
+}
+
 export interface StopFarmingArgs {
   authority: Keypair;
   farm: PublicKey;
@@ -147,6 +153,25 @@ export class Farmer {
         stakeVault,
         stakeWallet,
         walletAuthority: authority.publicKey,
+      })
+      .signers(signers)
+      .rpc();
+  }
+  public async close(input: Partial<CloseFarmerArgs> = {}) {
+    const farmer = input.farmer ?? (await this.id());
+    const authority = input.authority ?? this.authority;
+    const skipAuthoritySignature = input.skipAuthoritySignature ?? false;
+
+    const signers = [];
+    if (!skipAuthoritySignature) {
+      signers.push(authority);
+    }
+
+    await amm.methods
+      .closeFarmer()
+      .accounts({
+        authority: authority.publicKey,
+        farmer,
       })
       .signers(signers)
       .rpc();
