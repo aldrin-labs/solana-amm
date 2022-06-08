@@ -6,6 +6,15 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2022-06-06
+
+### Added
+
+- Endpoint `claim_eligible_harvest` which reads pairs of (vault, wallet) from
+  remaining accounts and checks their mint. The mint if used to retrieve amount
+  of tokens eligible to claim by the `Farmer`. After that specific amount is
+  transferred, we set the `Farmer`'s harvest of that mint to zero.
+
 ## [0.7.3] - 2022-06-06
 
 ### Added
