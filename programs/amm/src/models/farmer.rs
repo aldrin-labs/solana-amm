@@ -97,7 +97,7 @@ impl Farmer {
         Ok(())
     }
 
-    fn total_deposited(&self) -> Result<TokenAmount> {
+    pub fn total_deposited(&self) -> Result<TokenAmount> {
         self.staked
             .amount
             .checked_add(self.vested.amount)

@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[derive(Accounts)]
 pub struct SetFarmOwner<'info> {
-    /// THe ownership over the farm is checked in the [`handle`] function.
+    /// The ownership over the farm is checked in the [`handle`] function.
     pub admin: Signer<'info>,
     pub new_farm_admin: Signer<'info>,
     /// # Important
