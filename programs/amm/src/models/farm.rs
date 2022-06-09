@@ -40,9 +40,9 @@ pub struct Farm {
     /// [`History`].
     pub snapshots: Snapshots,
     /// Enforces a minimum amount of timespan between snapshots, thus ensures
-    /// that the ring_buffer in total has a minimum amount of time ellapsed.
+    /// that the ring_buffer in total has a minimum amount of time elapsed.
     /// When a Farm is initiated, min_snapshot_window_slots is defaulted to
-    /// zero. When zero, the endpoint take_snapshots will set this contraint
+    /// zero. When zero, the endpoint take_snapshots will set this constraint
     /// to the default value [`consts::MIN_SNAPSHOT_WINDOW_SLOTS`].
     /// This field is configurable via the endpoint set_min_snapshot_window
     /// which can be called by the admin.
