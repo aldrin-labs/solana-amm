@@ -261,6 +261,8 @@ impl Farmer {
 /// If the time of farmer's last harvest was less than the open window,
 /// the farmer would lose tokens, so we error. Firstly,
 /// [`update_eligible_harvest_in_past_snapshots`] must be called.
+///
+/// ref. eq. (1)
 fn update_eligible_harvest_in_open_window(
     farm_harvests: &BTreeMap<Pubkey, &Harvest>,
     open_window: &Snapshot,
@@ -333,6 +335,8 @@ fn update_eligible_harvest_in_open_window(
 /// needs to be calculated in the past snapshots. It the farmer hasn't harvested
 /// the eligible harvest form past snapshots, then this method needs to be
 /// called prior to `[update_eligible_harvest_in_open_window]`.
+///
+/// ref. eq. (2)
 fn update_eligible_harvest_in_past_snapshots<'a>(
     farm_harvests: &BTreeMap<Pubkey, &Harvest>,
     snapshots_iter: impl Iterator<Item = &'a Snapshot>,
