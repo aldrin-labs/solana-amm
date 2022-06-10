@@ -207,7 +207,29 @@ impl Farmer {
         )?;
 
         // convert the map back into an array
-        self.harvests = farmer_harvests
+        self.set_harvests(farmer_harvests)?;
+
+        // plus one because calculation is _inclusive_ of the current slot
+        self.calculate_next_harvest_from.slot = Clock::get()?.slot + 1;
+
+        Ok(())
+    }
+
+    /// Sets given map of harvest mint pubkeys keys and corresponding earned
+    /// token amounts in that harvest as the array of harvests on the farmer's
+    /// account.
+    ///
+    /// The map mustn't contain more entries than the
+    /// [`consts::MAX_HARVEST_MINTS`]. That's a global program invariant
+    /// enforced by [`sync_harvest_mints`].
+    ///
+    /// If the map contains less entries, we pad the rest with
+    /// `(Pubkey::default(), TokenAmount::new(0))`.
+    pub fn set_harvests(
+        &mut self,
+        harvests: impl IntoIterator<Item = (Pubkey, TokenAmount)>,
+    ) -> Result<()> {
+        self.harvests = harvests
             .into_iter()
             .map(|(mint, tokens)| AvailableHarvest { mint, tokens })
             // pad with uninitialized harvests
@@ -219,11 +241,9 @@ impl Farmer {
             .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| {
-                msg!("Cannot convert available harvests vec into an array");
+                msg!("Cannot convert farmer harvest vector into array");
                 AmmError::InvariantViolation
             })?;
-
-        self.calculate_next_harvest_from.slot = Clock::get()?.slot + 1;
 
         Ok(())
     }

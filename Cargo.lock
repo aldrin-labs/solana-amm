@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "amm"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
