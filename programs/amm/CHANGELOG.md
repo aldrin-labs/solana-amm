@@ -6,6 +6,16 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2022-06-09
+
+### Changed
+
+- When we convert map to an array of `Farmer.harvests`, we pad the array with
+  empty harvests (default pubkey and zero earn.) This was done in two places:
+  `claim_eligible_harvest` endpoint and `fn update_eligible_harvest` on
+  `Farmer`. This version deduplicates the logic into a single new method
+  `set_harvests`.
+
 ## [0.7.5] - 2022-06-06
 
 ### Added
@@ -32,7 +42,7 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 - Wrapped `add_to_vested` and `update_eligible_harvest` methods on `Farmer`
   to `check_vested_period_and_update_harvest`.
 - Changed logic for slot calculation in `update_eligible_harvest_in_open_window`
-  to account for missing slot. The slots were being calculated by subtracting 
+  to account for missing slot. The slots were being calculated by subtracting
   `current_slot` by `calculate_next_harvest_from.slot`, however since we want
   to include the current slot in the calculation we change it it by adding 1
   to the equation, therefore making it `current_slot + 1` subtracted

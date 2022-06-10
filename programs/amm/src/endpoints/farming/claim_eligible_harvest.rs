@@ -18,7 +18,6 @@
 use crate::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};
 use std::collections::BTreeMap;
-use std::iter;
 
 #[derive(Accounts)]
 pub struct ClaimEligibleHarvest<'info> {
@@ -124,21 +123,7 @@ pub fn handle<'info>(
     //
     // note that not all harvest mints may have been claimed, but the ones which
     // were are set to 0 now
-    accounts.farmer.harvests = farmer_harvests
-        .into_iter()
-        .map(|(mint, tokens)| AvailableHarvest { mint, tokens })
-        // pad with uninitialized harvests
-        .chain(iter::repeat_with(|| AvailableHarvest {
-            mint: Pubkey::default(),
-            tokens: TokenAmount::default(),
-        }))
-        .take(consts::MAX_HARVEST_MINTS)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| {
-            msg!("Cannot convert farmer harvest vector into array");
-            AmmError::InvariantViolation
-        })?;
+    accounts.farmer.set_harvests(farmer_harvests)?;
 
     Ok(())
 }
