@@ -1,7 +1,9 @@
 [features]
 seeds = false
+
 [programs.localnet]
-amm = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+amm = "DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ"
+
 
 [registry]
 url = "https://anchor.projectserum.com"
