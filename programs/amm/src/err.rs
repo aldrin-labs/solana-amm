@@ -23,6 +23,11 @@ pub enum AmmError {
     UnknownHarvestMintPubKey,
     #[msg("The limit of configuration updates has been already exceeded within the snapshot history")]
     ConfigurationUpdateLimitExceeded,
+    #[msg(
+        "Stake mint must be one of harvestable mints \
+        for autocompouding to work"
+    )]
+    CannotCompoundIfStakeMintIsNotHarvest,
     #[msg("One of the provided input arguments is invalid")]
     InvalidArg,
 }

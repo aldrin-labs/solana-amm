@@ -51,7 +51,7 @@ export function test() {
       );
     });
 
-    it("it updates even if unstake max amount > stake amount", async () => {
+    it("updates even if unstake max amount > stake amount", async () => {
       await farmer.airdropStakeTokens(10);
 
       await farmer.startFarming(10);
@@ -132,7 +132,7 @@ export function test() {
       );
     });
 
-    it("it fails if wrong farm_signer_pda is provided", async () => {
+    it("fails if wrong farm_signer_pda is provided", async () => {
       await farmer.airdropStakeTokens(10);
 
       await farmer.startFarming(10);
@@ -146,7 +146,7 @@ export function test() {
       expect(logs).to.contain("A seeds constraint was violated.");
     });
 
-    it("it works", async () => {
+    it("works", async () => {
       let stakeMint = await getMint(provider.connection, await farm.stakeMint);
       let stakeWallet = await getAccount(
         provider.connection,

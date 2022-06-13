@@ -9,6 +9,7 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
+import { Farmer } from "./farmer";
 
 export interface InitFarmArgs {
   adminKeypair: Keypair;
@@ -64,6 +65,34 @@ export interface SetTokensPerSlot {
   admin: Keypair;
   farm: PublicKey;
   skipAdminSignature: boolean;
+}
+
+export interface FarmWhitelist {
+  admin: Keypair;
+  sourceFarm: PublicKey;
+  targetFarm: PublicKey;
+  whitelistCompounding: PublicKey;
+  skipAdminSignature: boolean;
+}
+
+export interface CompoundSameFarm {
+  farm: PublicKey;
+  stakeVault: PublicKey;
+  harvestVault: PublicKey;
+  farmer: PublicKey;
+  farmSignerPda: PublicKey;
+  whitelistCompounding: PublicKey;
+}
+
+export interface CompoundAcrossFarms {
+  sourceFarm: PublicKey;
+  targetFarm: PublicKey;
+  targetStakeVault: PublicKey;
+  sourceHarvestVault: PublicKey;
+  sourceFarmer: PublicKey;
+  targetFarmer: PublicKey;
+  sourceFarmSignerPda: PublicKey;
+  whitelistCompounding: PublicKey;
 }
 
 export class Farm {
@@ -167,6 +196,18 @@ export class Farm {
 
   public async signer(): Promise<[PublicKey, number]> {
     return Farm.signerFrom(this.id);
+  }
+
+  public async findWhitelistPda(targetFarm: PublicKey): Promise<PublicKey> {
+    const [pda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+      [
+        Buffer.from("whitelist_compounding"),
+        this.id.toBytes(),
+        targetFarm.toBytes(),
+      ],
+      amm.programId
+    );
+    return pda;
   }
 
   public async addHarvest(input: Partial<AddHarvestArgs> = {}): Promise<{
@@ -432,6 +473,190 @@ export class Farm {
         farm,
       })
       .signers(signers)
+      .rpc();
+  }
+
+  public async WhitelistFarmForCompounding(
+    input: Partial<FarmWhitelist> = {}
+  ): Promise<void> {
+    const admin = input.admin ?? this.admin;
+    const sourceFarm = input.sourceFarm ?? this.id;
+    const targetFarm = input.targetFarm ?? Keypair.generate().publicKey;
+    const skipAdminSignature = input.skipAdminSignature ?? false;
+
+    const [correctPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+      [
+        Buffer.from("whitelist_compounding"),
+        this.id.toBytes(),
+        targetFarm.toBytes(),
+      ],
+      amm.programId
+    );
+
+    const whitelistCompounding = input.whitelistCompounding ?? correctPda;
+
+    const signers = [];
+
+    if (!skipAdminSignature) {
+      signers.push(admin);
+    }
+
+    await amm.methods
+      .whitelistFarmForCompounding()
+      .accounts({
+        admin: admin.publicKey,
+        sourceFarm,
+        targetFarm,
+        whitelistCompounding,
+      })
+      .signers(signers)
+      .rpc();
+  }
+
+  public async DewhitelistFarmForCompounding(
+    input: Partial<FarmWhitelist> = {}
+  ): Promise<void> {
+    const admin = input.admin ?? this.admin;
+    const sourceFarm = input.sourceFarm ?? this.id;
+    const targetFarm = input.targetFarm ?? Keypair.generate().publicKey;
+    const skipAdminSignature = input.skipAdminSignature ?? false;
+
+    const [correctPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+      [
+        Buffer.from("whitelist_compounding"),
+        this.id.toBytes(),
+        targetFarm.toBytes(),
+      ],
+      amm.programId
+    );
+
+    const whitelistCompounding = input.whitelistCompounding ?? correctPda;
+
+    const signers = [];
+
+    if (!skipAdminSignature) {
+      signers.push(admin);
+    }
+
+    await amm.methods
+      .dewhitelistFarmForCompounding()
+      .accounts({
+        admin: admin.publicKey,
+        sourceFarm,
+        targetFarm,
+        whitelistCompounding,
+      })
+      .signers(signers)
+      .rpc();
+  }
+
+  public async compoundSameFarm(
+    mint: PublicKey,
+    input: Partial<CompoundSameFarm> = {}
+  ): Promise<void> {
+    const farm = input.farm ?? this.id;
+    const stakeVault = input.stakeVault ?? (await this.stakeVault());
+    const farmer = input.farmer ?? Keypair.generate().publicKey;
+
+    // Harvest Vault
+    const [correctVaultPda, _vaultBumpSeed] =
+      await PublicKey.findProgramAddress(
+        [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
+        amm.programId
+      );
+    const harvestVault = input.harvestVault ?? correctVaultPda;
+
+    // Whitelist PDA
+    const [whitelistCorrectPda, _signerBumpSeed] =
+      await PublicKey.findProgramAddress(
+        [Buffer.from("whitelist_compounding"), farm.toBytes(), farm.toBytes()],
+        amm.programId
+      );
+    const whitelistCompounding =
+      input.whitelistCompounding ?? whitelistCorrectPda;
+
+    // Farm Signer PDA
+    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+      [Buffer.from("signer"), farm.toBytes()],
+      amm.programId
+    );
+    const farmSignerPda = input.farmSignerPda ?? correctPda;
+
+    await amm.methods
+      .compoundSameFarm()
+      .accounts({
+        farm,
+        farmSignerPda,
+        whitelistCompounding,
+        stakeVault,
+        harvestVault,
+        farmer,
+      })
+      .rpc();
+  }
+
+  public async compoundAcrossFarms(
+    mint: PublicKey,
+    input: Partial<CompoundAcrossFarms> = {}
+  ): Promise<void> {
+    const sourceFarm = input.sourceFarm ?? this.id;
+
+    const possibleTargetFarm = await Farm.init();
+    const targetFarm = input.targetFarm ?? possibleTargetFarm.id;
+
+    const [correctTargetVaultPda, _bumpSeed] =
+      await PublicKey.findProgramAddress(
+        [Buffer.from("stake_vault"), targetFarm.toBytes()],
+        amm.programId
+      );
+    const targetStakeVault = input.targetStakeVault ?? correctTargetVaultPda;
+
+    const sourceFarmer =
+      input.sourceFarmer ?? (await (await Farmer.init(this)).id());
+    const targetFarmer =
+      input.targetFarmer ??
+      (await (await Farmer.init(possibleTargetFarm)).id());
+
+    // Harvest Vault
+    const [correctVaultPda, _vaultBumpSeed] =
+      await PublicKey.findProgramAddress(
+        [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
+        amm.programId
+      );
+    const sourceHarvestVault = input.sourceHarvestVault ?? correctVaultPda;
+
+    // Whitelist PDA
+    const [whitelistCorrectPda, _signerBumpSeed] =
+      await PublicKey.findProgramAddress(
+        [
+          Buffer.from("whitelist_compounding"),
+          this.id.toBytes(),
+          targetFarm.toBytes(),
+        ],
+        amm.programId
+      );
+
+    const whitelistCompounding =
+      input.whitelistCompounding ?? whitelistCorrectPda;
+    // Farm Signer PDA
+    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+      [Buffer.from("signer"), sourceFarm.toBytes()],
+      amm.programId
+    );
+    const sourceFarmSignerPda = input.sourceFarmSignerPda ?? correctPda;
+
+    await amm.methods
+      .compoundAcrossFarms()
+      .accounts({
+        sourceFarm,
+        targetFarm,
+        sourceFarmSignerPda,
+        whitelistCompounding,
+        targetStakeVault,
+        sourceHarvestVault,
+        sourceFarmer,
+        targetFarmer,
+      })
       .rpc();
   }
 }
