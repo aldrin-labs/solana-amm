@@ -127,6 +127,16 @@ pub struct Snapshot {
     pub started_at: Slot,
 }
 
+/// Struct representing a pda account for whitelisting farms for compounding.
+/// The whitelisting of a farm done by calling the endpoint
+/// `whitelist_farm_for_compounding` which will instanciate a new pda account
+/// represented by this struct.
+/// We wrap this struct with an Account struct instead of using a simple
+/// AccountInfo in order to be able to close the account if needed, by using
+/// anchor constraints when calling `dewhitelist_farm_for_compounding`.
+#[account]
+pub struct WhitelistCompounding {}
+
 impl Default for Snapshots {
     fn default() -> Self {
         Self {
@@ -139,6 +149,8 @@ impl Default for Snapshots {
 impl Farm {
     pub const SIGNER_PDA_PREFIX: &'static [u8; 6] = b"signer";
     pub const STAKE_VAULT_PREFIX: &'static [u8; 11] = b"stake_vault";
+    pub const WHITELIST_PDA_PREFIX: &'static [u8; 21] =
+        b"whitelist_compounding";
 
     pub fn add_harvest(
         &mut self,

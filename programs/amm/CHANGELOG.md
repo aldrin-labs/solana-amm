@@ -6,6 +6,27 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] - 2022-06-10
+
+### Added
+
+- Endpoint `compound_same_farm` which can be called by anyone (presumably a bot
+  or a user) and transfers all harvest of mint A to the whitelisted stake vault
+  of the same farm. This can only work if the farm's harvest mint matched
+  the stake mint.
+- Endpoint `compound_across_farm` which can be called by anyone (presumably a
+  bot or a user) and transfers all of a farmer's harvest of mint A to the
+  whitelisted stake vault of a different farm (target farm).This can only work
+  for farms which have a harvest mint match the stake mint.
+- Endpoint `whitelist_farm_for_compounding` that can be called by the admin of 
+  the source farm in order to whitelist the target farms that the source farm
+  can send the harvest tokens to.
+- Endpoint `dewhitelist_farm_for_compounding` that can be called by the 
+  admin of the source farm in order to remove a target farm from the whitelist.
+- Method on `Farmer` model called `claim_harvest` that, for a given mint, it
+  flushes out the eligble tokens from the `Farmer` struct and returns the
+  token amount eligible.
+
 ## [0.7.6] - 2022-06-09
 
 ### Changed

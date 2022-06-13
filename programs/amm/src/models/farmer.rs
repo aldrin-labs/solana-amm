@@ -137,6 +137,21 @@ impl Farmer {
         Ok(())
     }
 
+    /// Withdraw all tokens of given stake mint and return how much that was.
+    pub fn claim_harvest(&mut self, stake_mint: Pubkey) -> Result<TokenAmount> {
+        let harvest = self
+            .harvests
+            .iter_mut()
+            .find(|h| h.mint == stake_mint)
+            .ok_or(AmmError::CannotCompoundIfStakeMintIsNotHarvest)?;
+
+        let stake = harvest.tokens;
+
+        harvest.tokens.amount = 0;
+
+        Ok(stake)
+    }
+
     /// Checks if the vested tokens can be moved to staked tokens. This method
     /// must be called before any other action is taken regarding the farmer's
     /// account.
@@ -545,6 +560,51 @@ mod tests {
         assert_eq!(farmer.vested_at, Slot { slot: 0 });
         assert_eq!(farmer.vested, TokenAmount { amount: 0 });
         assert_eq!(farmer.staked, TokenAmount { amount: 20 });
+    }
+
+    #[test]
+    fn it_claims_harvest() {
+        let mint = Pubkey::new_unique();
+
+        let mut farmer = Farmer {
+            staked: TokenAmount { amount: 10 },
+            vested: TokenAmount { amount: 10 },
+            vested_at: Slot { slot: 0 },
+            harvests: generate_farmer_harvests(&mut vec![(mint, 100)])
+                .try_into()
+                .unwrap(),
+            ..Default::default()
+        };
+
+        assert_eq!(farmer.harvests[0].mint, mint);
+        assert_eq!(farmer.harvests[0].tokens, TokenAmount { amount: 100 });
+
+        let amount_claimed = farmer.claim_harvest(mint).unwrap();
+
+        assert_eq!(farmer.harvests[0].tokens, TokenAmount { amount: 0 });
+        assert_eq!(amount_claimed, TokenAmount { amount: 100 });
+    }
+
+    #[test]
+    fn it_fails_to_claim_harvest_if_mint_mismatch() {
+        let mint = Pubkey::new_unique();
+        let wrong_mint = Pubkey::new_unique();
+
+        let mut farmer = Farmer {
+            staked: TokenAmount { amount: 10 },
+            vested: TokenAmount { amount: 10 },
+            vested_at: Slot { slot: 0 },
+            harvests: generate_farmer_harvests(&mut vec![(mint, 100)])
+                .try_into()
+                .unwrap(),
+            ..Default::default()
+        };
+
+        assert!(farmer
+            .claim_harvest(wrong_mint)
+            .unwrap_err()
+            .to_string()
+            .contains("CannotCompoundIfStakeMintIsNotHarvest"))
     }
 
     #[test]

@@ -104,4 +104,26 @@ pub mod amm {
     ) -> Result<()> {
         endpoints::farming::claim_eligible_harvest::handle(ctx)
     }
+
+    pub fn whitelist_farm_for_compounding(
+        ctx: Context<WhitelistFarmForCompouding>,
+    ) -> Result<()> {
+        endpoints::farming::whitelist_farm_for_compounding::handle(ctx)
+    }
+
+    pub fn dewhitelist_farm_for_compounding(
+        ctx: Context<DewhitelistFarmForCompounding>,
+    ) -> Result<()> {
+        endpoints::farming::dewhitelist_farm_for_compounding::handle(ctx)
+    }
+
+    pub fn compound_same_farm(ctx: Context<CompoundSameFarm>) -> Result<()> {
+        endpoints::farming::compound_same_farm::handle(ctx)
+    }
+
+    pub fn compound_across_farms(
+        ctx: Context<CompoundAcrossFarms>,
+    ) -> Result<()> {
+        endpoints::farming::compound_across_farms::handle(ctx)
+    }
 }

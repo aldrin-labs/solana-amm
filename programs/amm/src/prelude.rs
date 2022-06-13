@@ -61,6 +61,27 @@ pub mod utils {
         harvest_vec
     }
 
+    pub fn generate_farmer_harvests(
+        snapshots_raw_vec: &mut Vec<(Pubkey, u64)>,
+    ) -> Vec<AvailableHarvest> {
+        if snapshots_raw_vec.len() < consts::MAX_HARVEST_MINTS {
+            let slack = consts::MAX_HARVEST_MINTS - snapshots_raw_vec.len();
+            let mut slack_vec: Vec<(Pubkey, u64)> =
+                vec![(Pubkey::default(), 0); slack];
+            snapshots_raw_vec.append(&mut slack_vec);
+        }
+
+        let snapshots_vec = snapshots_raw_vec
+            .iter()
+            .map(|(mint, tokens)| AvailableHarvest {
+                mint: *mint,
+                tokens: TokenAmount { amount: *tokens },
+            })
+            .collect();
+
+        snapshots_vec
+    }
+
     pub fn generate_tps_history(
         tps_raw_vec: &mut Vec<(u64, u64)>,
     ) -> Vec<TokensPerSlotHistory> {
