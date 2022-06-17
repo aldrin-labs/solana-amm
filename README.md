@@ -1,10 +1,15 @@
 - Solana v1.9.18
 - Anchor v0.24.2
 - [Code coverage][project-code-coverage]
-- [Rust docs][project-rust-docs]
+
+# AMM
+
+- [Rust docs][amm-rust-docs]
+- [Changelog][amm-changelog]
 
 # Farming program (Fp)
 
+- [Rust docs][fp-rust-docs]
 - [Changelog][fp-changelog]
 - [`DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ` is dev program][fp-dev-solscan]
 
@@ -390,8 +395,10 @@ snapshot ring buffer history:
 
 [token-program-mint]: https://docs.rs/anchor-spl/0.24.2/anchor_spl/token/struct.Mint.html
 [project-code-coverage]: https://crypto_project.gitlab.io/defi/amm/coverage
-[project-rust-docs]: https://crypto_project.gitlab.io/defi/amm/amm
+[fp-rust-docs]: https://crypto_project.gitlab.io/defi/amm/farming
 [fp-changelog]: https://crypto_project.gitlab.io/defi/amm/fp.changelog.html
+[amm-rust-docs]: https://crypto_project.gitlab.io/defi/amm/amm
+[amm-changelog]: https://crypto_project.gitlab.io/defi/amm/amm.changelog.html
 [rin-staking]: https://dex.aldrin.com/staking
 [example-staking-units]: docs/images/staking_units.png
 [snapshot-buffer]: docs/images/snapshot_buffer.png
@@ -399,4 +406,4 @@ snapshot ring buffer history:
 [snapshot-closed-calc]: docs/images/harvest_calc_past_snapshots.png
 [snapshot-open-calc]: docs/images/harvest_calc_open_snapshot.png
 [snapshot-history]: docs/images/history.png
-[fp-dev-solscal]: https://solscan.io/account/DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ
+[fp-dev-solscan]: https://solscan.io/account/DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ

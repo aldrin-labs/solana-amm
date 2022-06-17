@@ -1,10 +1,10 @@
 {
     "license": "UNLICENSED",
     "scripts": {
-        "fmt": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
-        "fmt-check": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+        "fmt": "prettier tests/*/**/*.ts -w",
+        "fmt-check": "prettier tests/*/**/*.ts --check",
         "ts-check": "tsc --noEmit",
-        "lint": "tslint -c tslint.json 'tests/src/**/*.ts'",
+        "lint": "tslint -c tslint.json 'tests/**/*.ts'",
         "build": "anchor build",
         "test": "anchor test"
     },

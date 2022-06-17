@@ -2,7 +2,7 @@ import { Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
-import { errLogs, sleep } from "../helpers";
+import { errLogs, sleep } from "../../helpers";
 
 export function test() {
   describe("close_farmer", () => {

@@ -2,7 +2,7 @@ import { PublicKey, Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
-import { errLogs, farming } from "../helpers";
+import { errLogs, farming } from "../../helpers";
 
 export function test() {
   describe("create_farmer", () => {

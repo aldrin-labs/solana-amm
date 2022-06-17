@@ -1,4 +1,4 @@
-import { airdrop, errLogs } from "../helpers";
+import { airdrop, errLogs } from "../../helpers";
 import { Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import { Farm } from "../farm";

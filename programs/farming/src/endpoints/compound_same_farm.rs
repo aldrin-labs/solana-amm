@@ -1,11 +1,12 @@
 //! If the stake mint is also one of the harvestable mints, such as is the case
 //! with RIN staking (for staking RIN you get RIN harvest), then we enable bots
 //! to transfer farmer's harvest into their stake total. This endpoint operates
-//! this logic in a single farm, therefore transfering the tokens from the
+//! this logic in a single farm, therefore transferring the tokens from the
 //! harvest vault to the stake vault. In order for this to work,the farm admin
 //! needs to whitelist itself via the endpoint
-//! [`whitelist_farm_form_compounding`]. For the same logic accross different
-//! farms see endpoint [`compound_across_farms`].
+//! [`crate::endpoints::whitelist_farm_for_compounding`]. For the same logic
+//! across different farms see endpoint
+//! [`crate::endpoints::compound_across_farms`].
 
 use crate::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};

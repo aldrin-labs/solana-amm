@@ -1,4 +1,4 @@
-import { airdrop, farming, provider } from "./helpers";
+import { airdrop, farming, provider } from "../helpers";
 import { Keypair, PublicKey, AccountMeta } from "@solana/web3.js";
 import { Farm } from "./farm";
 import { Account, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";

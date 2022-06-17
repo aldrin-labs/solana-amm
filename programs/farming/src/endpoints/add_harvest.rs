@@ -3,7 +3,7 @@
 //!
 //! This endpoint fails if there are already [`consts::MAX_HARVEST_MINTS`]
 //! different harvest mints. First, you must
-//! [`crate::endpoints::farming::remove_harvest`] and only then you can add a
+//! [`crate::endpoints::remove_harvest`] and only then you can add a
 //! new harvest.
 //!
 //! Either call this as an instruction in a transaction in which you deposit

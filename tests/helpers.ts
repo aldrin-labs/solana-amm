@@ -1,14 +1,9 @@
-import {
-  AnchorProvider,
-  Program,
-  setProvider,
-  workspace,
-  BN,
-} from "@project-serum/anchor";
+import { AnchorProvider, setProvider, BN } from "@project-serum/anchor";
 import { PublicKey } from "@solana/web3.js";
 import NodeWallet from "@project-serum/anchor/dist/cjs/nodewallet";
-import { Farming } from "../../target/types/farming";
 import { expect } from "chai";
+import { Program, workspace } from "@project-serum/anchor";
+import { Farming } from "../target/types/farming";
 
 export const provider = AnchorProvider.local();
 setProvider(provider);

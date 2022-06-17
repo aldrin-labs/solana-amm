@@ -1,4 +1,4 @@
-import { airdrop, errLogs, payer, provider } from "../helpers";
+import { airdrop, errLogs, payer, provider } from "../../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { createAccount, getAccount, mintTo } from "@solana/spl-token";
 import { expect } from "chai";

@@ -1,6 +1,5 @@
 import chaiAsPromised from "chai-as-promised";
 import chai from "chai";
-
 chai.use(chaiAsPromised);
 
 import * as createFarm from "./endpoints/create-farm";
@@ -21,7 +20,7 @@ import * as stopFarming from "./endpoints/stop-farming";
 import * as updateEligibleHarvest from "./endpoints/update-eligible-harvest";
 import * as claimEligibleHarvest from "./endpoints/claim-eligible-harvest";
 
-import { airdrop, provider } from "./helpers";
+import { airdrop, provider } from "../helpers";
 
 describe("farming", () => {
   createFarm.test();

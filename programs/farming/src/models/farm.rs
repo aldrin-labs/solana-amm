@@ -36,9 +36,8 @@ pub struct Farm {
     /// # Note
     /// Len must match [`consts::MAX_HARVEST_MINTS`].
     pub harvests: [Harvest; 10],
-    /// Stores snapshots of the amount of total staked tokens and changes to
-    /// `ρ`. Note that [`Farm`] is in a many-to-one relationship to a
-    /// [`History`].
+    /// Stores snapshots of the amount of total staked tokens in a ring buffer,
+    /// meaning that the history is overwritten after some time.
     pub snapshots: Snapshots,
     /// Enforces a minimum amount of timespan between snapshots, thus ensures
     /// that the ring_buffer in total has a minimum amount of time elapsed.
