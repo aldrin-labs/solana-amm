@@ -1,4 +1,4 @@
-//! This could be moved to integration tests at `amm/tests/` eventually.
+//! This could be moved to integration tests at `farming/tests/` eventually.
 
 use crate::prelude::*;
 

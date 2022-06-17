@@ -96,7 +96,7 @@ impl Farmer {
             .vested
             .amount
             .checked_add(tokens.amount)
-            .ok_or(AmmError::MathOverflow)?;
+            .ok_or(FarmingError::MathOverflow)?;
 
         Ok(())
     }
@@ -105,7 +105,7 @@ impl Farmer {
         self.staked
             .amount
             .checked_add(self.vested.amount)
-            .ok_or_else(|| error!(AmmError::MathOverflow))
+            .ok_or_else(|| error!(FarmingError::MathOverflow))
             .map(TokenAmount::new)
     }
 
@@ -161,7 +161,7 @@ impl Farmer {
                     .staked
                     .amount
                     .checked_add(self.vested.amount)
-                    .ok_or(AmmError::MathOverflow)?;
+                    .ok_or(FarmingError::MathOverflow)?;
                 self.vested = TokenAmount { amount: 0 };
             }
         }
@@ -174,11 +174,11 @@ impl Farmer {
 
     /// Withdraw all tokens of given stake mint and return how much that was.
     pub fn claim_harvest(&mut self, stake_mint: Pubkey) -> Result<TokenAmount> {
-        let harvest = self
-            .harvests
-            .iter_mut()
-            .find(|h| h.mint == stake_mint)
-            .ok_or(AmmError::CannotCompoundIfStakeMintIsNotHarvest)?;
+        let harvest =
+            self.harvests
+                .iter_mut()
+                .find(|h| h.mint == stake_mint)
+                .ok_or(FarmingError::CannotCompoundIfStakeMintIsNotHarvest)?;
 
         let stake = harvest.tokens;
 
@@ -272,7 +272,7 @@ impl Farmer {
             .try_into()
             .map_err(|_| {
                 msg!("Cannot convert farmer harvest vector into array");
-                AmmError::InvariantViolation
+                FarmingError::InvariantViolation
             })?;
 
         Ok(())
@@ -406,7 +406,7 @@ fn eligible_harvest_until<'a>(
                         // This should never happen, since we skip the
                         // this function call whenever
                         // calculate_next_harvest_from >= current_slot
-                        .ok_or(AmmError::MathOverflow)?
+                        .ok_or(FarmingError::MathOverflow)?
                         + 1; // +1 bcs inclusiveness
                     eligible_harvest = eligible_harvest.try_add(
                         Decimal::from(slots)
@@ -437,7 +437,7 @@ fn eligible_harvest_until<'a>(
                 amount: farmer_harvest
                     .amount
                     .checked_add(eligible_harvest.try_floor_u64()?)
-                    .ok_or(AmmError::MathOverflow)?,
+                    .ok_or(FarmingError::MathOverflow)?,
             };
         }
 

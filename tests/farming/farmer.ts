@@ -1,4 +1,4 @@
-import { airdrop, amm, provider } from "./helpers";
+import { airdrop, farming, provider } from "./helpers";
 import { Keypair, PublicKey, AccountMeta } from "@solana/web3.js";
 import { Farm } from "./farm";
 import { Account, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
@@ -76,7 +76,7 @@ export class Farmer {
       signers.push(authority);
     }
 
-    await amm.methods
+    await farming.methods
       .createFarmer()
       .accounts({
         authority: authority.publicKey,
@@ -90,7 +90,7 @@ export class Farmer {
   }
 
   public async fetch() {
-    return amm.account.farmer.fetch(await this.id());
+    return farming.account.farmer.fetch(await this.id());
   }
 
   public static async signerFrom(
@@ -99,7 +99,7 @@ export class Farmer {
   ): Promise<[PublicKey, number]> {
     return PublicKey.findProgramAddress(
       [Buffer.from("farmer"), farm.toBytes(), authority.toBytes()],
-      amm.programId
+      farming.programId
     );
   }
 
@@ -145,7 +145,7 @@ export class Farmer {
       signers.push(authority);
     }
 
-    await amm.methods
+    await farming.methods
       .startFarming({ amount: new BN(amount) })
       .accounts({
         farm,
@@ -167,7 +167,7 @@ export class Farmer {
       signers.push(authority);
     }
 
-    await amm.methods
+    await farming.methods
       .closeFarmer()
       .accounts({
         authority: authority.publicKey,
@@ -189,7 +189,7 @@ export class Farmer {
 
     const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), this.farm.id.toBytes()],
-      amm.programId
+      farming.programId
     );
     const farmSignerPda = input.farmSignerPda ?? correctPda;
 
@@ -198,7 +198,7 @@ export class Farmer {
       signers.push(authority);
     }
 
-    await amm.methods
+    await farming.methods
       .stopFarming({ amount: new BN(amount) })
       .accounts({
         authority: authority.publicKey,
@@ -217,7 +217,7 @@ export class Farmer {
   ) {
     const farm = input.farm ?? this.farm.id;
 
-    await amm.methods
+    await farming.methods
       .updateEligibleHarvest()
       .accounts({
         farmer: await this.id(),
@@ -235,7 +235,7 @@ export class Farmer {
 
     const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("signer"), this.farm.id.toBytes()],
-      amm.programId
+      farming.programId
     );
     const farmSignerPda = input.farmSignerPda ?? correctPda;
 
@@ -259,7 +259,7 @@ export class Farmer {
       signers.push(authority);
     }
 
-    await amm.methods
+    await farming.methods
       .claimEligibleHarvest()
       .accounts({
         authority: authority.publicKey,

@@ -1,5 +1,5 @@
 import {
-  amm,
+  farming,
   payer,
   provider,
   airdrop,
@@ -51,7 +51,7 @@ export function test() {
     it("fails if wrong whitelist pda is provided", async () => {
       const [wrongPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
         [Buffer.from("wrong_prefix"), farm.id.toBytes(), farm.id.toBytes()],
-        amm.programId
+        farming.programId
       );
 
       const farmer = await Farmer.init(farm);
@@ -83,7 +83,7 @@ export function test() {
     it("fails if wrong farm signer pda is provided", async () => {
       const [wrongPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
         [Buffer.from("wrong prefix"), farm.id.toBytes()],
-        amm.programId
+        farming.programId
       );
 
       const farmer = await Farmer.init(farm);

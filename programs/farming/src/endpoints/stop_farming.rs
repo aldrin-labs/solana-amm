@@ -49,7 +49,7 @@ pub fn handle(
             "The provided unstake maximum amount \
             needs to be bigger than zero"
         );
-        return Err(error!(AmmError::InvalidArg));
+        return Err(error!(FarmingError::InvalidArg));
     }
 
     let farm = accounts.farm.load()?;

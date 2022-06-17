@@ -1,5 +1,5 @@
 import {
-  amm,
+  farming,
   payer,
   provider,
   airdrop,
@@ -60,7 +60,7 @@ export function test() {
           sourceFarm.id.toBytes(),
           targetFarm.id.toBytes(),
         ],
-        amm.programId
+        farming.programId
       );
 
       const sourceFarmer = await Farmer.init(sourceFarm);
@@ -93,9 +93,9 @@ export function test() {
     });
 
     it("fails if wrong farm signer pda is provided", async () => {
-      const [wrongPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+      const [wrongPda, _wrongBumpSeed] = await PublicKey.findProgramAddress(
         [Buffer.from("wrong prefix"), sourceFarm.id.toBytes()],
-        amm.programId
+        farming.programId
       );
 
       const sourceFarmer = await Farmer.init(sourceFarm);

@@ -1,4 +1,4 @@
-import { amm, payer, provider } from "./helpers";
+import { farming, payer, provider } from "./helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   createAccount,
@@ -141,7 +141,7 @@ export class Farm {
       (await (async () => {
         const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
           [Buffer.from("stake_vault"), farmKeypair.publicKey.toBytes()],
-          amm.programId
+          farming.programId
         );
         return pda;
       })());
@@ -157,11 +157,11 @@ export class Farm {
     const preInstructions = [];
     if (!skipCreateFarm) {
       preInstructions.push(
-        await amm.account.farm.createInstruction(farmKeypair)
+        await farming.account.farm.createInstruction(farmKeypair)
       );
     }
 
-    await amm.methods
+    await farming.methods
       .createFarm()
       .accounts({
         admin: adminKeypair.publicKey,
@@ -178,13 +178,13 @@ export class Farm {
   }
 
   public async fetch() {
-    return amm.account.farm.fetch(this.id);
+    return farming.account.farm.fetch(this.id);
   }
 
   public async stakeVault(): Promise<PublicKey> {
     const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("stake_vault"), this.id.toBytes()],
-      amm.programId
+      farming.programId
     );
     return pda;
   }
@@ -194,7 +194,7 @@ export class Farm {
   ): Promise<[PublicKey, number]> {
     return PublicKey.findProgramAddress(
       [Buffer.from("signer"), publicKey.toBytes()],
-      amm.programId
+      farming.programId
     );
   }
 
@@ -214,7 +214,7 @@ export class Farm {
         this.id.toBytes(),
         targetFarm.toBytes(),
       ],
-      amm.programId
+      farming.programId
     );
     return pda;
   }
@@ -222,7 +222,7 @@ export class Farm {
   public async harvestVault(mint: PublicKey): Promise<PublicKey> {
     const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
       [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
-      amm.programId
+      farming.programId
     );
     return pda;
   }
@@ -254,7 +254,7 @@ export class Farm {
       signers.push(admin);
     }
 
-    await amm.methods
+    await farming.methods
       .addHarvest()
       .accounts({
         admin: admin.publicKey,
@@ -292,7 +292,7 @@ export class Farm {
       signers.push(admin);
     }
 
-    await amm.methods
+    await farming.methods
       .removeHarvest(mint)
       .accounts({
         admin: admin.publicKey,
@@ -312,7 +312,7 @@ export class Farm {
 
     const stakeVault = input.stakeVault ?? (await this.stakeVault());
 
-    await amm.methods
+    await farming.methods
       .takeSnapshot()
       .accounts({
         farm,
@@ -353,7 +353,7 @@ export class Farm {
       signers.push(admin);
     }
 
-    await amm.methods
+    await farming.methods
       .setMinSnapshotWindow(new BN(setMinSnapshotWindow))
       .accounts({
         admin: admin.publicKey,
@@ -434,7 +434,7 @@ export class Farm {
       signers.push(newFarmAdmin);
     }
 
-    await amm.methods
+    await farming.methods
       .setFarmOwner()
       .accounts({
         admin: admin.publicKey,
@@ -488,7 +488,7 @@ export class Farm {
       signers.push(admin);
     }
 
-    await amm.methods
+    await farming.methods
       .newHarvestPeriod(
         harvestMint,
         { slot: new BN(fromSlot) },
@@ -520,7 +520,7 @@ export class Farm {
         this.id.toBytes(),
         targetFarm.toBytes(),
       ],
-      amm.programId
+      farming.programId
     );
 
     const whitelistCompounding = input.whitelistCompounding ?? correctPda;
@@ -530,7 +530,7 @@ export class Farm {
       signers.push(admin);
     }
 
-    await amm.methods
+    await farming.methods
       .whitelistFarmForCompounding()
       .accounts({
         admin: admin.publicKey,
@@ -556,7 +556,7 @@ export class Farm {
         this.id.toBytes(),
         targetFarm.toBytes(),
       ],
-      amm.programId
+      farming.programId
     );
 
     const whitelistCompounding = input.whitelistCompounding ?? correctPda;
@@ -567,7 +567,7 @@ export class Farm {
       signers.push(admin);
     }
 
-    await amm.methods
+    await farming.methods
       .dewhitelistFarmForCompounding()
       .accounts({
         admin: admin.publicKey,
@@ -593,14 +593,14 @@ export class Farm {
     const [whitelistCorrectPda, _signerBumpSeed] =
       await PublicKey.findProgramAddress(
         [Buffer.from("whitelist_compounding"), farm.toBytes(), farm.toBytes()],
-        amm.programId
+        farming.programId
       );
     const whitelistCompounding =
       input.whitelistCompounding ?? whitelistCorrectPda;
 
     const farmSignerPda = input.farmSignerPda ?? (await this.signerPda());
 
-    await amm.methods
+    await farming.methods
       .compoundSameFarm()
       .accounts({
         farm,
@@ -625,7 +625,7 @@ export class Farm {
     const [correctTargetVaultPda, _bumpSeed] =
       await PublicKey.findProgramAddress(
         [Buffer.from("stake_vault"), targetFarm.toBytes()],
-        amm.programId
+        farming.programId
       );
     const targetStakeVault = input.targetStakeVault ?? correctTargetVaultPda;
 
@@ -646,7 +646,7 @@ export class Farm {
           this.id.toBytes(),
           targetFarm.toBytes(),
         ],
-        amm.programId
+        farming.programId
       );
 
     const whitelistCompounding =
@@ -654,7 +654,7 @@ export class Farm {
     const sourceFarmSignerPda =
       input.sourceFarmSignerPda ?? (await this.signerPda());
 
-    await amm.methods
+    await farming.methods
       .compoundAcrossFarms()
       .accounts({
         sourceFarm,

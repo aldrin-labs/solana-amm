@@ -17,7 +17,7 @@ pub fn handle(
     let mut farm = accounts.farm.load_mut()?;
 
     if farm.admin != accounts.admin.key() {
-        return Err(error!(AmmError::FarmAdminMismatch));
+        return Err(error!(FarmingError::FarmAdminMismatch));
     }
 
     farm.min_snapshot_window_slots = min_snapshot_window_slots;

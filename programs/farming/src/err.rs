@@ -2,7 +2,7 @@ use crate::prelude::*;
 use std::fmt::Display;
 
 #[error_code]
-pub enum AmmError {
+pub enum FarmingError {
     #[msg("Operation would result in an overflow")]
     MathOverflow,
     /// Use this error via the [`acc`] function to provide more background
@@ -34,8 +34,8 @@ pub enum AmmError {
     CannotOverwriteOpenHarvestPeriod,
 }
 
-pub fn acc(msg: impl Display) -> AmmError {
+pub fn acc(msg: impl Display) -> FarmingError {
     msg!("[InvalidAccountInput] {}", msg);
 
-    AmmError::InvalidAccountInput
+    FarmingError::InvalidAccountInput
 }
