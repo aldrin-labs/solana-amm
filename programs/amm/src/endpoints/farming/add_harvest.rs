@@ -51,10 +51,7 @@ pub struct AddHarvest<'info> {
     pub rent: AccountInfo<'info>,
 }
 
-pub fn handle(
-    ctx: Context<AddHarvest>,
-    tokens_per_slot: TokenAmount,
-) -> Result<()> {
+pub fn handle(ctx: Context<AddHarvest>) -> Result<()> {
     let farm_signer_bump_seed = *ctx.bumps.get("farm_signer_pda").unwrap();
     let accounts = ctx.accounts;
 
@@ -67,7 +64,6 @@ pub fn handle(
     farm.add_harvest(
         accounts.harvest_mint.key(),
         accounts.harvest_vault.key(),
-        tokens_per_slot,
     )?;
 
     // init the token account for the harvest vault

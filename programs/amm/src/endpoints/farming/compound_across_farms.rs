@@ -89,17 +89,20 @@ pub fn handle(ctx: Context<CompoundAcrossFarms>) -> Result<()> {
 
     let source_farm = accounts.source_farm.load()?;
     let target_farm = accounts.target_farm.load()?;
+    let current_slot = Slot::current()?;
 
     accounts
         .source_farmer
-        .check_vested_period_and_update_harvest(&source_farm)?;
+        .check_vested_period_and_update_harvest(&source_farm, current_slot)?;
 
     // get all harvestable tokens of the farmer and add them to their vested
     // tokens
     let compound_tokens = accounts
         .source_farmer
         .claim_harvest(target_farm.stake_mint)?;
-    accounts.target_farmer.add_to_vested(compound_tokens)?;
+    accounts
+        .target_farmer
+        .add_to_vested(current_slot, compound_tokens)?;
 
     // transfer all those harvestable tokens to the stake vault
     let pda_seeds = &[

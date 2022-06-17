@@ -8,7 +8,7 @@ import * as addHarvest from "./endpoints/add-harvest";
 import * as removeHarvest from "./endpoints/remove-harvest";
 import * as takeSnapshot from "./endpoints/take-snapshot";
 import * as setMinSnapshotWindow from "./endpoints/set-min-snapshot-window";
-import * as setTokensPerSlot from "./endpoints/set-tokens-per-slot";
+import * as newHarvestPeriod from "./endpoints/new-harvest-period";
 import * as setFarmOwner from "./endpoints/set-farm-owner";
 import * as createFarmer from "./endpoints/create-farmer";
 import * as closeFarmer from "./endpoints/close-farmer";
@@ -30,17 +30,17 @@ describe("farming", () => {
   takeSnapshot.test();
   setMinSnapshotWindow.test();
   setFarmOwner.test();
-  setTokensPerSlot.test();
+  newHarvestPeriod.test();
   createFarmer.test();
   startFarming.test();
+  stopFarming.test();
+  updateEligibleHarvest.test();
+  claimEligibleHarvest.test();
   closeFarmer.test();
   whitelistFarmForCompounding.test();
   dewhitelistFarmForCompounding.test();
   compoundSameFarm.test();
   compoundAcrossFarms.test();
-  stopFarming.test();
-  updateEligibleHarvest.test();
-  claimEligibleHarvest.test();
 
   before("airdrop SOL to provider wallet", async () => {
     await airdrop(provider.wallet.publicKey);

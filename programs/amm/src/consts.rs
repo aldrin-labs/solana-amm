@@ -13,9 +13,10 @@
 /// size.
 pub const MAX_HARVEST_MINTS: usize = 10;
 
-/// The admin can change the configurable `tokens_per_slot` only this many
-/// times per `[`SNAPSHOTS_LEN`] * [`MIN_SNAPSHOT_WINDOW_SLOTS`]` slots.
-pub const TOKENS_PER_SLOT_HISTORY_LEN: usize = 10;
+/// How many times within the snapshot history can a new harvest period be
+/// added. We need to keep the harvest history because the harvest calculation
+/// can happen after the period ends.
+pub const HARVEST_PERIODS_LEN: usize = 10;
 
 /// How many snapshots are there in the ring buffer. This count multiplied by
 /// [`MIN_SNAPSHOT_WINDOW_SLOTS`] gives us for how many slots is the history

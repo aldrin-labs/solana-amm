@@ -54,9 +54,10 @@ program:
 
     - yarn
   script:
+    - npm run build
     - npm run fmt-check
     - npm run lint
-    # both builds the program and runs integration tests
+    - npm run ts-check
     - ./bin/test.sh
 
 # We generate docs.rs style documentation for the codebase and publish it as

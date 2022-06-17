@@ -22,7 +22,7 @@ export async function errLogs(job: Promise<unknown>): Promise<string> {
   } catch (error) {
     if (!Array.isArray(error.logs)) {
       console.log("No logs on the error:", error);
-      throw new Error(`No logs on the error objection`);
+      throw new Error(`No logs on the error object`);
     }
 
     return String(error.logs);
@@ -47,7 +47,11 @@ export async function assertApproxCurrentSlot(
   delta: number = 2
 ) {
   expect(input.slot.toNumber()).to.be.approximately(
-    await provider.connection.getSlot(),
+    await getCurrentSlot(),
     delta
   );
+}
+
+export function getCurrentSlot(): Promise<number> {
+  return provider.connection.getSlot();
 }

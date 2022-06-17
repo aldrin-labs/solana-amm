@@ -1,5 +1,5 @@
-import { airdrop, provider, amm, errLogs } from "../helpers";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { airdrop, provider, errLogs } from "../helpers";
+import { Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import { Farm } from "../farm";
 
@@ -22,7 +22,7 @@ export function test() {
     beforeEach("whitelist farm", async () => {
       targetFarm = await Farm.init({ adminKeypair: targetAdmin });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
         admin,
       });
@@ -33,7 +33,7 @@ export function test() {
       await airdrop(fakeAdmin.publicKey);
 
       const logs = await errLogs(
-        sourceFarm.DewhitelistFarmForCompounding({
+        sourceFarm.dewhitelistFarmForCompounding({
           targetFarm: targetFarm.id,
           admin: fakeAdmin,
         })
@@ -52,7 +52,7 @@ export function test() {
 
     it("fails if admin has not signed transaction", async () => {
       await expect(
-        sourceFarm.DewhitelistFarmForCompounding({
+        sourceFarm.dewhitelistFarmForCompounding({
           skipAdminSignature: true,
           targetFarm: targetFarm.id,
         })
@@ -68,7 +68,7 @@ export function test() {
     });
 
     it("works", async () => {
-      await sourceFarm.DewhitelistFarmForCompounding({
+      await sourceFarm.dewhitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 

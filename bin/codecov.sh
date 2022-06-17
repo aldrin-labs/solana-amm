@@ -25,7 +25,6 @@ export CARGO_INCREMENTAL=0
 export RUSTFLAGS="-Cinstrument-coverage"
 export LLVM_PROFILE_FILE="target/codecov/amm-%p-%m.profraw"
 
-cargo build
 cargo test
 
 mkdir -p target/codecov

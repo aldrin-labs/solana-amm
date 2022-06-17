@@ -6,6 +6,34 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2022-06-17
+
+### Changed
+
+- The tps history is now stored as "periods". Periods are non-overlapping and
+  always bounded on the timeline, that is the admin _must_ specify how long
+  does the farming last. Once started, farming emission rate cannot be changed.
+- Endpoint `set_tokens_per_slot` was renamed to `new_harvest_period` and
+  accepts new accounts: admin's harvest wallet, harvest vault and farm signer.
+  The endpoint makes sure that there are enough tokens in the harvest vault to
+  cover the whole harvest period.
+
+### Removed
+
+- `add_harvest` endpoint no longer accepts tps as parameter, one must always
+  call `new_harvest_period` to change emission rate.
+
+### Fixed
+
+- Vesting period tokens were previously added to the staked tokens before
+  calculation of the harvest, which meant that actually the vested tokens still
+  earned tokens in the snapshot they were added at. Now, we split the
+  calculation into 2 parts. First, we calculate with the current amount of
+  staked tokens for the unfinished snapshot. Then we add the vested tokens to
+  staked tokens and finish the calculation until the most recent slot.
+- If a snapshot had staked amount 0, the first snapshot which didn't was
+  counted as if it had started at that snapshot with staked amount 0.
+
 ## [0.7.7] - 2022-06-10
 
 ### Added
@@ -18,10 +46,10 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
   bot or a user) and transfers all of a farmer's harvest of mint A to the
   whitelisted stake vault of a different farm (target farm).This can only work
   for farms which have a harvest mint match the stake mint.
-- Endpoint `whitelist_farm_for_compounding` that can be called by the admin of 
+- Endpoint `whitelist_farm_for_compounding` that can be called by the admin of
   the source farm in order to whitelist the target farms that the source farm
   can send the harvest tokens to.
-- Endpoint `dewhitelist_farm_for_compounding` that can be called by the 
+- Endpoint `dewhitelist_farm_for_compounding` that can be called by the
   admin of the source farm in order to remove a target farm from the whitelist.
 - Method on `Farmer` model called `claim_harvest` that, for a given mint, it
   flushes out the eligble tokens from the `Farmer` struct and returns the

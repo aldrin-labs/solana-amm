@@ -4,6 +4,7 @@ use crate::models::{Slot, TokenAmount};
 use crate::prelude::*;
 use std::cmp::Ordering;
 use std::iter;
+use std::ops::RangeInclusive;
 
 /// To create a user incentive for token possession, we distribute time
 /// dependent rewards. A farmer stakes tokens of a mint `S`, ie. they lock them
@@ -25,8 +26,8 @@ pub struct Farm {
     ///
     /// This is derivable from the farm's pubkey as a seed.
     pub stake_vault: Pubkey,
-    /// List of different harvest mints with configuration of how many tokens
-    /// are released per slot.
+    /// List of different harvest mints with harvest periods, each with its own
+    /// configuration of how many tokens are released per slot.
     ///
     /// # Important
     /// Defaults to an array with all harvest mints as default pubkeys. Only
@@ -69,29 +70,32 @@ pub struct Harvest {
     /// (`ρ`.) This value represents how many tokens should be divided
     /// between all farmers per slot (~0.4s.)
     ///
-    /// This stores an ordered list of changes to this setting. We need to keep
-    /// the history because changes to this value should never apply
-    /// retroactively. The history is limited by the snapshots ring buffer full
-    /// rotation period. See the design docs for more info.
+    /// Each `ρ` is defined in some time range, ie. we must know at what slot
+    /// that particular `ρ` starts being applicable, and at which point it
+    /// stops being applicable.
+    ///
+    /// This array holds history of all periods, so that we can calculate
+    /// appropriate harvest for farmers using the snapshot ring buffer history.
+    /// Only once the snapshot ring buffer history is beyond some period's end
+    /// date can that period be removed from this array.
     ///
     /// # Important
-    /// This array is ordered by the `TokensPerSlotHistory.at.slot` integer
-    /// DESC.
+    /// 1. Periods are non-overlapping.
+    /// 2. Periods are sorted by start slot DESC.
+    /// 3. Gaps between periods are allowed and they should be interpreted as
+    /// having `ρ = 0`.
     ///
     /// # Note
-    /// This len must match [`consts::TOKENS_PER_SLOT_HISTORY_LEN`].
-    pub tokens_per_slot: [TokensPerSlotHistory; 10],
+    /// This len must match [`consts::HARVEST_PERIODS_LEN`].
+    pub periods: [HarvestPeriod; 10],
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
 #[zero_copy]
-pub struct TokensPerSlotHistory {
-    pub value: TokenAmount,
-    /// The new value was updated at this slot. However, it will not be valid
-    /// _since_ this slot, only since the first snapshot start slot that's
-    /// greater than this slot. That is, the configuration cannot be applied
-    /// to currently open snapshot window.
-    pub at: Slot,
+pub struct HarvestPeriod {
+    pub tps: TokenAmount,
+    pub starts_at: Slot,
+    pub ends_at: Slot,
 }
 
 #[derive(Eq, PartialEq)]
@@ -129,11 +133,13 @@ pub struct Snapshot {
 
 /// Struct representing a pda account for whitelisting farms for compounding.
 /// The whitelisting of a farm done by calling the endpoint
-/// `whitelist_farm_for_compounding` which will instanciate a new pda account
-/// represented by this struct.
-/// We wrap this struct with an Account struct instead of using a simple
-/// AccountInfo in order to be able to close the account if needed, by using
-/// anchor constraints when calling `dewhitelist_farm_for_compounding`.
+/// [`crate::endpoints::whitelist_farm_for_compounding`] which will instantiate
+/// a new pda account represented by this struct.
+///
+/// We wrap this struct with an [`Account`] struct instead of using a simple
+/// [`AccountInfo`] in order to be able to close the account if needed, by using
+/// anchor constraints when calling
+/// [`crate::endpoints::dewhitelist_farm_for_compounding`].
 #[account]
 pub struct WhitelistCompounding {}
 
@@ -156,7 +162,6 @@ impl Farm {
         &mut self,
         harvest_mint: Pubkey,
         harvest_vault: Pubkey,
-        tokens_per_slot: TokenAmount,
     ) -> Result<()> {
         // this should also be checked by the PDA seed, that is the harvest
         // vault key will already exist and `init` will fail
@@ -173,23 +178,16 @@ impl Farm {
         {
             harvest.mint = harvest_mint;
             harvest.vault = harvest_vault;
-            // we could also just write to zeroth index, because the array
-            // should be all zeroes, but let's overwrite the whole
-            // array anyway
-            harvest.tokens_per_slot = iter::once(TokensPerSlotHistory {
-                value: tokens_per_slot,
-                at: Slot::current()?,
-            })
-            .chain(iter::repeat(TokensPerSlotHistory::default()))
-            .take(consts::TOKENS_PER_SLOT_HISTORY_LEN)
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| {
-                msg!(
-                    "Cannot convert tokens per slot history vector into array"
+            harvest.periods = iter::repeat(HarvestPeriod::default())
+                .take(consts::HARVEST_PERIODS_LEN)
+                .collect::<Vec<_>>()
+                .try_into()
+                .map_err(|_| {
+                    msg!(
+                    "Cannot convert harvest period history vector into array"
                 );
-                AmmError::InvariantViolation
-            })?;
+                    AmmError::InvariantViolation
+                })?;
 
             Ok(())
         } else {
@@ -197,14 +195,22 @@ impl Farm {
         }
     }
 
-    pub fn set_tokens_per_slot(
+    /// The admin always defines how long a farming should last. Once that
+    /// farming finishes, they can reuse the same [`Farm`] to start a new
+    /// farming period.
+    ///
+    /// A scheduled launch is when the latest harvest period hasn't started yet.
+    /// In that case, instead of creating a new one, we overwrite the existing
+    /// one. The return value indicates whether a scheduled launch overwrite
+    /// happened by returning the previous scheduled period.
+    pub fn new_harvest_period(
         &mut self,
-        oldest_snapshot: Snapshot,
+        current_slot: Slot,
         harvest_mint: Pubkey,
-        valid_from_slot: Slot,
-        tokens_per_slot: TokenAmount,
-    ) -> Result<()> {
-        let current_slot = Slot::current()?;
+        period: (Slot, Slot),
+        tps: TokenAmount,
+    ) -> Result<Option<HarvestPeriod>> {
+        let oldest_snapshot = self.oldest_snapshot();
 
         let harvest = self
             .harvests
@@ -212,47 +218,76 @@ impl Farm {
             .find(|h| h.mint == harvest_mint)
             .ok_or(AmmError::UnknownHarvestMintPubKey)?;
 
-        let latest_tokens_per_slot_history = &mut harvest.tokens_per_slot[0];
-        // if the latest tokens per slot is at a future slot, then we update its
-        // value
-        if latest_tokens_per_slot_history.at.slot >= current_slot.slot {
-            *latest_tokens_per_slot_history = TokensPerSlotHistory {
-                at: valid_from_slot,
-                value: tokens_per_slot,
-            };
-            return Ok(());
+        let (mut starts_at, ends_at) = period;
+        if starts_at.slot == 0 {
+            starts_at = current_slot;
+        } else if starts_at < current_slot {
+            msg!(
+                "Cannot start a new farming period in the past, \
+                use 0 to default to current slot"
+            );
+            return Err(error!(AmmError::InvalidSlot));
         }
 
-        // we know a priori that harvest: TokensPerSlotHistory was at least
+        if starts_at >= ends_at {
+            msg!("New farming period must start before it ends");
+            return Err(error!(AmmError::InvalidSlot));
+        }
+
+        let latest_period = &mut harvest.periods[0];
+        // if the latest period is at a future slot, then we update its
+        // value
+        //
+        // this enables scheduled launches
+        if latest_period.starts_at > current_slot {
+            let previous_latest_period = *latest_period;
+            *latest_period = HarvestPeriod {
+                tps,
+                starts_at,
+                ends_at,
+            };
+            return Ok(Some(previous_latest_period));
+        }
+
+        if latest_period.ends_at.slot != 0
+            && latest_period.ends_at >= current_slot
+        {
+            msg!(
+                "Currently active harvest period ends at slot {}",
+                latest_period.ends_at.slot
+            );
+            return Err(error!(AmmError::CannotOverwriteOpenHarvestPeriod));
+        }
+
+        // we know a priori that harvest: HarvestPeriod was at least
         // already initialized as a fixed number length array of default
         // elements so unwrap `.last()` is safe
-        let oldest_token_per_slot_history =
-            harvest.tokens_per_slot.last().unwrap();
-        // if the oldest tokens per slot is within the current snapshot history,
+        let oldest_period = harvest.periods.last().unwrap();
+        // if the oldest period is within the current snapshot history,
         // we are unable to update its value, the admin already passed the
         // allowed max number of possible configuration updates
-        if oldest_token_per_slot_history.at.slot != 0
-            && oldest_token_per_slot_history.at.slot
-                >= oldest_snapshot.started_at.slot
+        let is_oldest_period_initialized = oldest_period.ends_at.slot != 0;
+        if is_oldest_period_initialized
+            && oldest_period.ends_at.slot >= oldest_snapshot.started_at.slot
         {
             return Err(error!(AmmError::ConfigurationUpdateLimitExceeded));
         }
 
-        // At this step, we know that the oldest token slot history is strictly
+        // At this step, we know that the oldest period end slot is strictly
         // less than the oldest snapshot slot. In this case, we update
-        // the `harvests` array to have a new harvest with token slot
-        // history with slot at `valid_from_slot`
-        harvest.tokens_per_slot.rotate_right(1);
-
-        // get new latest token per slot history
-        let new_latest_token_per_slot_history = TokensPerSlotHistory {
-            value: tokens_per_slot,
-            at: valid_from_slot,
+        // the `harvests` array element of the given mint to have
+        // a new harvest period starting and ending at the slots
+        // given by the `period` parameter.
+        harvest.periods.rotate_right(1);
+        harvest.periods[0] = HarvestPeriod {
+            tps,
+            starts_at,
+            ends_at,
         };
-        harvest.tokens_per_slot[0] = new_latest_token_per_slot_history;
 
-        Ok(())
+        Ok(None)
     }
+
     pub fn latest_snapshot(&self) -> Snapshot {
         self.snapshots.ring_buffer[self.snapshots.ring_buffer_tip as usize]
     }
@@ -261,13 +296,36 @@ impl Farm {
         self.snapshots.ring_buffer[self.oldest_snapshot_index()]
     }
 
-    fn oldest_snapshot_index(&self) -> usize {
-        if self.snapshots.ring_buffer_tip as usize != consts::SNAPSHOTS_LEN - 1
-        {
-            self.snapshots.ring_buffer_tip as usize + 1
-        } else {
-            0
+    pub fn first_snapshot_after(&self, slot: Slot) -> Option<Snapshot> {
+        if self.latest_snapshot().started_at <= slot {
+            // optimization for calculation in open window
+            return None;
         }
+
+        let tip = self.snapshots.ring_buffer_tip as usize;
+        // The inverted_tip is the tip of the buffer ring in reverse order.
+        // since we ar using `.rev()`, to make sure the iterator start at the
+        // open window we have to use `.skip(inverted_tip)` instead of
+        // `.skip(tip)`.
+        let inverted_tip = consts::SNAPSHOTS_LEN - tip - 1;
+
+        let pos = self
+            .snapshots
+            .ring_buffer
+            .iter()
+            .enumerate()
+            .rev()
+            .cycle()
+            .skip(inverted_tip)
+            .take(consts::SNAPSHOTS_LEN)
+            .find(|(_, s)| s.started_at <= slot)
+            .map(|(index, _)| index)?;
+
+        Some(if pos == consts::SNAPSHOTS_LEN - 1 {
+            self.snapshots.ring_buffer[0]
+        } else {
+            self.snapshots.ring_buffer[pos + 1]
+        })
     }
 
     /// This method returns an iterator that only contains the snapshots that
@@ -279,8 +337,6 @@ impl Farm {
     /// Given three snapshots starting at 5, 10 and 15, and given a
     /// `calculate_next_harvest_from` = 12, then this method will return a
     /// slice of length 2, containing the snapshots that start at 15 and 10.
-    /// However, when there is only the open window left to be harvested it will
-    /// retun an empty slice.
     pub fn get_window_snapshots_eligible_to_harvest(
         &self,
         calculate_next_harvest_from: Slot,
@@ -405,46 +461,117 @@ impl Farm {
 
         Ok(())
     }
+
+    fn oldest_snapshot_index(&self) -> usize {
+        if self.snapshots.ring_buffer_tip as usize != consts::SNAPSHOTS_LEN - 1
+        {
+            self.snapshots.ring_buffer_tip as usize + 1
+        } else {
+            0
+        }
+    }
 }
 
 impl Harvest {
     pub const VAULT_PREFIX: &'static [u8; 13] = b"harvest_vault";
 
-    /// Returns the last change to ρ before or at a given slot.
+    /// Returns a vec of all periods and their corresponding `ρ` ordered by
+    /// the period's start slot _ASC_. That is, you can pop from this vec to get
+    /// the most recent period.
     ///
-    /// # Important
-    /// If the admin changes ρ during an open snapshot window, it should only be
-    /// considered from the next snapshot. This method _does not account_ for
-    /// that invariant.
+    /// The range is slot when the period starts, slot when the period ends,
+    /// inclusive. There are no gaps, that is two subsequent periods will fill
+    /// all timeline.
     ///
-    /// # Returns
-    /// First tuple member is the ρ itself, second tuple member returns the slot
-    /// of the _next_ ρ change if any ([`None`] if latest.)
-    pub fn tokens_per_slot(&self, at: Slot) -> (TokenAmount, Option<Slot>) {
-        match self
-            .tokens_per_slot
-            .iter()
-            .position(|tps| tps.at.slot <= at.slot)
-        {
-            Some(0) => (self.tokens_per_slot[0].value, None),
-            Some(i) => (
-                self.tokens_per_slot[i].value,
-                Some(self.tokens_per_slot[i - 1].at),
-            ),
-            None => {
-                msg!("There is no ρ history for the farm at {}", at.slot);
-                (
-                    // no history = harvest lost
-                    TokenAmount { amount: 0 },
-                    // find the oldest (hence rev) change to the setting
-                    self.tokens_per_slot
-                        .iter()
-                        .rev()
-                        .find(|tps| tps.value.amount != 0)
-                        .map(|tps| tps.at)
-                        .or(Some(self.tokens_per_slot[0].at)),
-                )
-            }
+    /// # Example
+    /// Say there are two farming in the farm `periods` array:
+    /// 1. from slot 1 to slot 10 with `ρ = 1000`
+    /// 2. from slot 25 to slot 100 with `ρ = 5000`
+    ///
+    /// This method fills in the gaps between them with periods of `ρ = 0` and
+    /// if called on slot 500, it also appends one more period from end of 2nd
+    /// to the current slot, again with `ρ = 0`.
+    ///
+    /// ```text
+    /// farm.tps_history(Slot::new(500))
+    ///
+    /// =>
+    ///
+    /// [
+    ///   ((1..10), 1000),
+    ///   ((11..25), 0),
+    ///   ((25..100), 5000),
+    ///   ((101..500), 0),
+    /// ]
+    /// ```
+    pub fn tps_history(
+        &self,
+        current: Slot,
+    ) -> Vec<(RangeInclusive<Slot>, TokenAmount)> {
+        // because we use `windows` method, the last period will not be included
+        // in the iterator, so we pad the iterator with it
+        let padding = [
+            self.periods[self.periods.len() - 1],
+            HarvestPeriod {
+                tps: TokenAmount::new(0),
+                starts_at: Slot::new(0),
+                ends_at: Slot::new(0),
+            },
+        ];
+        let history = self
+            .periods
+            .windows(2)
+            .chain(iter::once(padding.as_slice()))
+            .filter_map(|periods| {
+                // period we care for
+                let curr = periods[0];
+                // previous period in time so that we know how to fill the gaps
+                // between them
+                let prev = periods[1];
+
+                // uninitialized periods are filtered out
+                if curr.starts_at.slot == 0 && prev.starts_at.slot == 0 {
+                    return None;
+                }
+
+                // the actual period
+                let mut ranges =
+                    vec![(curr.starts_at..=curr.ends_at, curr.tps)];
+
+                // In some cases we want to pad the gap between this period and
+                // the previous one with a range of `tps = 0`.
+                //
+                // 1. if the period starts at 0, then there's no previous
+                // history, so don't pad
+                //
+                // 2. if the previous period ends a single slot before the
+                // current starts, then no need to pad because there's no gap
+                if curr.starts_at.slot != 0
+                    && prev.ends_at.slot + 1 != curr.starts_at.slot
+                {
+                    ranges.push((
+                        Slot::new(prev.ends_at.slot + 1)
+                            ..=Slot::new(curr.starts_at.slot - 1),
+                        TokenAmount::new(0),
+                    ));
+                }
+
+                Some(ranges.into_iter())
+            })
+            .flatten();
+
+        if self.periods[0].ends_at < current {
+            // and pad the end as well if the latest period ended before the
+            // current slot, ie. in past
+            iter::once((
+                Slot::new(self.periods[0].ends_at.slot + 1)..=current,
+                TokenAmount::new(0),
+            ))
+            .chain(history)
+            .rev()
+            .collect()
+        } else {
+            history.rev().collect()
         }
     }
 }
@@ -453,17 +580,13 @@ impl Harvest {
 mod tests {
     use super::*;
     use crate::prelude::utils;
-    use serial_test::serial;
     use std::iter;
 
     #[test]
     fn it_matches_harvest_tokens_per_slot_with_const() {
         let harvest = Harvest::default();
 
-        assert_eq!(
-            harvest.tokens_per_slot.len(),
-            consts::TOKENS_PER_SLOT_HISTORY_LEN
-        );
+        assert_eq!(harvest.periods.len(), consts::HARVEST_PERIODS_LEN);
     }
 
     #[test]
@@ -484,149 +607,126 @@ mod tests {
     fn it_has_stable_size() {
         let farm = Farm::default();
 
-        assert_eq!(8 + std::mem::size_of_val(&farm), 18_360);
+        assert_eq!(8 + std::mem::size_of_val(&farm), 19_160);
+    }
+
+    #[test]
+    fn it_returns_first_snapshot_after_some_slot() -> Result<()> {
+        let mut farm = Farm::default();
+        farm.min_snapshot_window_slots = 1;
+        farm.take_snapshot(Slot::new(2), TokenAmount::new(1))?;
+        farm.take_snapshot(Slot::new(4), TokenAmount::new(2))?;
+        farm.take_snapshot(Slot::new(6), TokenAmount::new(3))?;
+
+        assert_eq!(farm.first_snapshot_after(Slot::new(10)), None);
+
+        assert_eq!(
+            farm.first_snapshot_after(Slot::new(0)),
+            Some(Snapshot {
+                staked: TokenAmount::new(1),
+                started_at: Slot::new(2),
+            })
+        );
+        assert_eq!(
+            farm.first_snapshot_after(Slot::new(1)),
+            Some(Snapshot {
+                staked: TokenAmount::new(1),
+                started_at: Slot::new(2),
+            })
+        );
+
+        assert_eq!(
+            farm.first_snapshot_after(Slot::new(2)),
+            Some(Snapshot {
+                staked: TokenAmount::new(2),
+                started_at: Slot::new(4),
+            })
+        );
+
+        assert_eq!(
+            farm.first_snapshot_after(Slot::new(5)),
+            Some(Snapshot {
+                staked: TokenAmount::new(3),
+                started_at: Slot::new(6)
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_wraps_when_returning_first_snapshot_after_some_slot() -> Result<()> {
+        let mut farm = Farm::default();
+        farm.min_snapshot_window_slots = 1;
+        for i in 5..consts::SNAPSHOTS_LEN * 2 {
+            farm.take_snapshot(Slot::new(i as u64 * 2), TokenAmount::new(1))?;
+        }
+
+        assert_eq!(
+            farm.first_snapshot_after(Slot::new(
+                farm.snapshots.ring_buffer[consts::SNAPSHOTS_LEN - 1]
+                    .started_at
+                    .slot
+                    + 1
+            )),
+            Some(farm.snapshots.ring_buffer[0])
+        );
+
+        Ok(())
     }
 
     #[test]
     fn it_calculates_tps_with_empty_setting() {
         let harvest = Harvest::default();
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
-        assert_eq!(tps.amount, 0);
-        assert!(next_change.is_none());
+        let history = harvest.tps_history(Slot::new(30));
+        assert_eq!(
+            history,
+            vec![(Slot::new(1)..=Slot::new(30), TokenAmount::new(0)),]
+        );
     }
 
     #[test]
-    fn it_calculates_tps_with_one_setting() {
+    fn it_calculates_tps() {
         let mut harvest = Harvest::default();
-        harvest.tokens_per_slot[0] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 10 },
-            at: Slot { slot: 100 },
+        harvest.periods[0] = HarvestPeriod {
+            tps: TokenAmount::new(1),
+            starts_at: Slot::new(20),
+            ends_at: Slot::new(25),
+        };
+        harvest.periods[1] = HarvestPeriod {
+            tps: TokenAmount::new(2),
+            starts_at: Slot::new(10),
+            ends_at: Slot::new(19),
+        };
+        harvest.periods[2] = HarvestPeriod {
+            tps: TokenAmount::new(3),
+            starts_at: Slot::new(5),
+            ends_at: Slot::new(8),
         };
 
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
-        assert_eq!(tps.amount, 0);
-        assert_eq!(next_change, Some(Slot { slot: 100 }));
+        assert_eq!(
+            harvest.tps_history(Slot::new(20)),
+            vec![
+                (Slot::new(1)..=Slot::new(4), TokenAmount::new(0)),
+                (Slot::new(5)..=Slot::new(8), TokenAmount::new(3)),
+                (Slot::new(9)..=Slot::new(9), TokenAmount::new(0)),
+                (Slot::new(10)..=Slot::new(19), TokenAmount::new(2)),
+                (Slot::new(20)..=Slot::new(25), TokenAmount::new(1)),
+            ]
+        );
 
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 50 });
-        assert_eq!(tps.amount, 0);
-        assert_eq!(next_change, Some(Slot { slot: 100 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 100 });
-        assert_eq!(tps.amount, 10);
-        assert!(next_change.is_none());
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 101 });
-        assert_eq!(tps.amount, 10);
-        assert!(next_change.is_none());
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 200 });
-        assert_eq!(tps.amount, 10);
-        assert!(next_change.is_none());
-    }
-
-    #[test]
-    fn it_calculates_tps_with_five_settings() {
-        let mut harvest = Harvest::default();
-        harvest.tokens_per_slot[0] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 10 },
-            at: Slot { slot: 100 },
-        };
-        harvest.tokens_per_slot[1] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 5 },
-            at: Slot { slot: 90 },
-        };
-        harvest.tokens_per_slot[2] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 8 },
-            at: Slot { slot: 80 },
-        };
-        harvest.tokens_per_slot[3] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 0 },
-            at: Slot { slot: 70 },
-        };
-        harvest.tokens_per_slot[4] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 20 },
-            at: Slot { slot: 60 },
-        };
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 101 });
-        assert_eq!(tps.amount, 10);
-        assert!(next_change.is_none());
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 100 });
-        assert_eq!(tps.amount, 10);
-        assert!(next_change.is_none());
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 91 });
-        assert_eq!(tps.amount, 5);
-        assert_eq!(next_change, Some(Slot { slot: 100 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 90 });
-        assert_eq!(tps.amount, 5);
-        assert_eq!(next_change, Some(Slot { slot: 100 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 89 });
-        assert_eq!(tps.amount, 8);
-        assert_eq!(next_change, Some(Slot { slot: 90 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 81 });
-        assert_eq!(tps.amount, 8);
-        assert_eq!(next_change, Some(Slot { slot: 90 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 80 });
-        assert_eq!(tps.amount, 8);
-        assert_eq!(next_change, Some(Slot { slot: 90 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 71 });
-        assert_eq!(tps.amount, 0);
-        assert_eq!(next_change, Some(Slot { slot: 80 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 61 });
-        assert_eq!(tps.amount, 20);
-        assert_eq!(next_change, Some(Slot { slot: 70 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 60 });
-        assert_eq!(tps.amount, 20);
-        assert_eq!(next_change, Some(Slot { slot: 70 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 59 });
-        assert_eq!(tps.amount, 0);
-        assert_eq!(next_change, Some(Slot { slot: 60 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
-        assert_eq!(tps.amount, 0);
-        assert_eq!(next_change, Some(Slot { slot: 60 }));
-    }
-
-    #[test]
-    fn it_calculates_tps_with_max_settings() {
-        let mut harvest = Harvest::default();
-        harvest.tokens_per_slot[0] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 10 },
-            at: Slot { slot: 100 },
-        };
-        for i in 1..(consts::MAX_HARVEST_MINTS - 2) {
-            harvest.tokens_per_slot[i] = harvest.tokens_per_slot[0];
-        }
-        harvest.tokens_per_slot[8] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 1 },
-            at: Slot { slot: 10 },
-        };
-        harvest.tokens_per_slot[9] = TokensPerSlotHistory {
-            value: TokenAmount { amount: 5 },
-            at: Slot { slot: 5 },
-        };
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 9 });
-        assert_eq!(tps.amount, 5);
-        assert_eq!(next_change, Some(Slot { slot: 10 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 5 });
-        assert_eq!(tps.amount, 5);
-        assert_eq!(next_change, Some(Slot { slot: 10 }));
-
-        let (tps, next_change) = harvest.tokens_per_slot(Slot { slot: 0 });
-        assert_eq!(tps.amount, 0);
-        assert_eq!(next_change, Some(Slot { slot: 5 }));
+        // pads it with a dummy period if latest already ended
+        assert_eq!(
+            harvest.tps_history(Slot::new(30)),
+            vec![
+                (Slot::new(1)..=Slot::new(4), TokenAmount::new(0)),
+                (Slot::new(5)..=Slot::new(8), TokenAmount::new(3)),
+                (Slot::new(9)..=Slot::new(9), TokenAmount::new(0)),
+                (Slot::new(10)..=Slot::new(19), TokenAmount::new(2)),
+                (Slot::new(20)..=Slot::new(25), TokenAmount::new(1)),
+                (Slot::new(26)..=Slot::new(30), TokenAmount::new(0)),
+            ]
+        );
     }
 
     #[test]
@@ -711,77 +811,111 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn set_tokens_per_slot_when_harvest_schedule_in_future() -> Result<()> {
-        // asserts that every schedule configuration to tokens per slot
-        // parameter is sucessful and does not change previous harvests
+    fn it_cannot_add_harvest_which_already_exists() -> Result<()> {
+        let mint = Pubkey::new_unique();
+
+        let mut farm = Farm::default();
+        farm.add_harvest(mint, Pubkey::new_unique())?;
+        assert!(farm.add_harvest(mint, Pubkey::new_unique()).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_returns_err_if_max_harvests_reached() -> Result<()> {
+        let mint = Pubkey::new_unique();
 
         let mut farm = Farm::default();
 
-        let tokens_per_slot = TokenAmount { amount: 100 };
-        let valid_from_slot = Slot { slot: 10 }; // minimum possible
-        utils::set_clock(valid_from_slot);
-
-        let harvest = farm.harvests[0];
-        let harvest_mint = harvest.mint;
-        let oldest_snapshot = farm.oldest_snapshot();
-
-        // update harvest.tokens_per_slot first entry to be in the future
-        farm.harvests[0].tokens_per_slot[0] = TokensPerSlotHistory {
-            at: Slot { slot: 10 },
-            value: TokenAmount { amount: 10 },
-        };
-
-        // call set_tokens_per_slot method
-        farm.set_tokens_per_slot(
-            oldest_snapshot,
-            harvest_mint,
-            valid_from_slot,
-            tokens_per_slot,
-        )?;
-
-        assert_eq!(
-            farm.harvests[0].tokens_per_slot[0],
-            TokensPerSlotHistory {
-                at: valid_from_slot,
-                value: tokens_per_slot
-            }
-        );
-
-        for i in 1..9_usize {
-            assert_eq!(
-                harvest.tokens_per_slot[i],
-                TokensPerSlotHistory {
-                    at: Slot { slot: 0 },
-                    value: TokenAmount { amount: 0 }
-                }
-            );
+        for _ in 0..consts::MAX_HARVEST_MINTS {
+            farm.add_harvest(Pubkey::new_unique(), Pubkey::new_unique())?;
         }
 
-        let tokens_per_slot = TokenAmount { amount: 200 };
+        assert!(farm.add_harvest(mint, Pubkey::new_unique()).is_err());
 
-        // call set_tokens_per_slot method
-        farm.set_tokens_per_slot(
-            oldest_snapshot,
-            harvest_mint,
-            valid_from_slot,
-            tokens_per_slot,
-        )?;
+        Ok(())
+    }
 
+    #[test]
+    fn it_adds_harvest() -> Result<()> {
+        let mint = Pubkey::new_unique();
+        let vault = Pubkey::new_unique();
+        let mut farm = Farm::default();
+
+        farm.add_harvest(mint, vault)?;
+
+        assert_eq!(farm.harvests[0].mint, mint);
+        assert_eq!(farm.harvests[0].vault, vault);
         assert_eq!(
-            farm.harvests[0].tokens_per_slot[0],
-            TokensPerSlotHistory {
-                at: valid_from_slot,
-                value: tokens_per_slot
+            farm.harvests[0].periods,
+            [HarvestPeriod::default(); consts::HARVEST_PERIODS_LEN]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn it_default_beginning_of_period_to_current_slot() -> Result<()> {
+        let harvest_mint = Pubkey::new_unique();
+        let mut farm = Farm::default();
+
+        farm.add_harvest(harvest_mint, Pubkey::new_unique())?;
+        farm.new_harvest_period(
+            Slot::new(5),
+            harvest_mint,
+            (Slot::new(0), Slot::new(25)),
+            TokenAmount::new(20),
+        )?;
+        assert_eq!(
+            farm.harvests[0].periods[0],
+            HarvestPeriod {
+                starts_at: Slot::new(5),
+                ends_at: Slot::new(25),
+                tps: TokenAmount::new(20)
             }
         );
 
-        for i in 1..9_usize {
+        Ok(())
+    }
+
+    #[test]
+    fn it_changes_farming_period_if_not_started_yet() -> Result<()> {
+        // As it stands now, the method `new_harvest_period` will not allow
+        // for there to be two scheduled periods in the future. If we call
+        // the method with a second period, p2, in the future the method will
+        // substitute the future period, p1, that was already in the struct.
+        let mut farm = Farm::default();
+
+        let harvest_mint = farm.harvests[0].mint;
+
+        // update first entry to be in the future
+        farm.harvests[0].periods[0] = HarvestPeriod {
+            starts_at: Slot::new(10),
+            ends_at: Slot::new(20),
+            tps: TokenAmount::new(10),
+        };
+        // call new_harvest_period method which should overwrite it
+        farm.new_harvest_period(
+            Slot::new(5),
+            harvest_mint,
+            (Slot::new(15), Slot::new(25)),
+            TokenAmount::new(20),
+        )?;
+        assert_eq!(
+            farm.harvests[0].periods[0],
+            HarvestPeriod {
+                starts_at: Slot::new(15),
+                ends_at: Slot::new(25),
+                tps: TokenAmount::new(20)
+            }
+        );
+
+        for i in 1..9 {
             assert_eq!(
-                harvest.tokens_per_slot[i],
-                TokensPerSlotHistory {
-                    at: Slot { slot: 0 },
-                    value: TokenAmount { amount: 0 }
+                farm.harvests[0].periods[i],
+                HarvestPeriod {
+                    starts_at: Slot::new(0),
+                    ends_at: Slot::new(0),
+                    tps: TokenAmount::new(0)
                 }
             );
         }
@@ -790,191 +924,75 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn set_tokens_per_slot_when_past_harvest() -> Result<()> {
-        // asserts that past harvest configuration updates
-        // are successful if limit has not exceeded
-
+    fn it_errs_new_harvest_period_if_period_is_in_the_past() -> Result<()> {
         let mut farm = Farm::default();
 
-        let harvest = farm.harvests[0];
-        let harvest_mint = harvest.mint;
-        let oldest_snapshot = farm.oldest_snapshot();
+        let harvest_mint = farm.harvests[0].mint;
 
-        let mut correct_tokens_per_slot_history: [TokensPerSlotHistory; 10] =
-            [TokensPerSlotHistory::default(); 10];
-
-        for i in 1..10 {
-            let valid_from_slot = Slot { slot: i };
-            utils::set_clock(valid_from_slot);
-
-            let tokens_per_slot = TokenAmount { amount: 100 * i };
-
-            farm.set_tokens_per_slot(
-                oldest_snapshot,
+        // call new_harvest_period when period is before current_slot
+        assert!(farm
+            .new_harvest_period(
+                Slot::new(35),
                 harvest_mint,
-                valid_from_slot,
-                tokens_per_slot,
-            )?;
-
-            correct_tokens_per_slot_history.rotate_right(1);
-            correct_tokens_per_slot_history[0] = TokensPerSlotHistory {
-                at: valid_from_slot,
-                value: tokens_per_slot,
-            };
-        }
-
-        assert_eq!(
-            correct_tokens_per_slot_history,
-            farm.harvests[0].tokens_per_slot
-        );
-
+                (Slot::new(15), Slot::new(25)),
+                TokenAmount::new(20),
+            )
+            .is_err());
         Ok(())
     }
 
     #[test]
-    #[serial]
-    fn set_tokens_per_slot_limit_configurations_exceeded() {
-        // asserts that in the case that tokens per slot changes
-        // has exceeded the limit, logic fails with error
-
+    fn it_can_add_new_period_only_if_history_not_full() {
         let mut farm = Farm::default();
 
-        let harvest = farm.harvests[0];
-        let harvest_mint = harvest.mint;
-        let oldest_snapshot = farm.oldest_snapshot();
+        let harvest_mint = farm.harvests[0].mint;
+        assert_eq!(farm.oldest_snapshot().started_at, Slot::new(0));
 
-        let valid_from_slot = Slot { slot: 15 };
-        let tokens_per_slot = TokenAmount { amount: 10 };
-
-        utils::set_clock(valid_from_slot);
-
-        farm.harvests[0].tokens_per_slot =
-            [10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(|u| TokensPerSlotHistory {
-                at: Slot { slot: u },
-                value: TokenAmount { amount: 100 * u },
+        farm.harvests[0].periods =
+            [10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(|u| HarvestPeriod {
+                starts_at: Slot::new(u * 10),
+                ends_at: Slot::new(u * 10 + 5),
+                tps: TokenAmount::new(100 * u),
             });
 
-        let output = farm.set_tokens_per_slot(
-            oldest_snapshot,
+        let output = farm.new_harvest_period(
+            Slot::new(150),
             harvest_mint,
-            valid_from_slot,
-            tokens_per_slot,
+            (Slot::new(160), Slot::new(165)),
+            TokenAmount::new(10),
         );
-
         assert!(output.is_err());
-    }
 
-    #[test]
-    #[serial]
-    fn set_tokens_per_slot_configuration_limit_exceeded_second() {
-        // asserts that in the case that tokens per slot changes
-        // has exceeded the limit, logic fails with error
-
-        let mut farm = Farm::default();
-
-        let harvest = farm.harvests[0];
-        let harvest_mint = harvest.mint;
-        let oldest_snapshot = farm.oldest_snapshot();
-
-        let valid_from_slot = Slot { slot: 120 };
-        let tokens_per_slot = TokenAmount { amount: 10 };
-
-        utils::set_clock(valid_from_slot);
-
-        farm.harvests[0].tokens_per_slot =
-            [100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(|u| {
-                TokensPerSlotHistory {
-                    at: Slot { slot: u },
-                    value: TokenAmount { amount: 100 * u },
-                }
-            });
-
-        farm.snapshots.ring_buffer
-            [farm.snapshots.ring_buffer_tip as usize + 1] = Snapshot {
-            staked: TokenAmount { amount: 50 },
-            started_at: Slot { slot: 5 },
+        farm.snapshots.ring_buffer[farm.oldest_snapshot_index()] = Snapshot {
+            staked: TokenAmount::new(0),
+            started_at: Slot::new(140),
         };
-
-        let output = farm.set_tokens_per_slot(
-            oldest_snapshot,
+        let output = farm.new_harvest_period(
+            Slot::new(150),
             harvest_mint,
-            valid_from_slot,
-            tokens_per_slot,
+            (Slot::new(160), Slot::new(165)),
+            TokenAmount::new(10),
         );
-
-        assert!(output.is_err());
-    }
-
-    #[test]
-    #[serial]
-    fn set_tokens_per_slot_successfull_when_oldest_snapshot_after_oldest_token_slot(
-    ) {
-        // asserts that changes in tokens per slot configuration is sucessful if
-        // last harvest parameter was not in future and the limit has
-        // not be exceeded
-
-        let mut farm = Farm::default();
-
-        let harvest = farm.harvests[0];
-        let harvest_mint = harvest.mint;
-
-        let valid_from_slot = Slot { slot: 120 };
-        let tokens_per_slot = TokenAmount { amount: 10 };
-
-        utils::set_clock(valid_from_slot);
-
-        farm.harvests[0].tokens_per_slot =
-            [100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(|u| {
-                TokensPerSlotHistory {
-                    at: Slot { slot: u },
-                    value: TokenAmount { amount: 100 * u },
-                }
-            });
-
-        farm.snapshots.ring_buffer
-            [farm.snapshots.ring_buffer_tip as usize + 1] = Snapshot {
-            staked: TokenAmount { amount: 50 },
-            started_at: Slot { slot: 15 },
-        };
-
-        let oldest_snapshot = farm.oldest_snapshot();
-
-        farm.set_tokens_per_slot(
-            oldest_snapshot,
-            harvest_mint,
-            valid_from_slot,
-            tokens_per_slot,
-        )
-        .unwrap();
-
-        // we assert that the first element of the array has been updated
+        assert!(output.is_ok());
         assert_eq!(
-            farm.harvests[0].tokens_per_slot[0],
-            TokensPerSlotHistory {
-                at: Slot { slot: 120 },
-                value: TokenAmount { amount: 10 }
+            farm.harvests[0].periods[0],
+            HarvestPeriod {
+                starts_at: Slot::new(160),
+                ends_at: Slot::new(165),
+                tps: TokenAmount::new(10),
             }
         );
-
-        // we assert that the remaining elements were shifted
-        for i in 1..10_usize {
-            assert_eq!(
-                farm.harvests[0].tokens_per_slot[i],
-                TokensPerSlotHistory {
-                    at: Slot {
-                        slot: 10 * (10 - i as u64 + 1)
-                    },
-                    value: TokenAmount {
-                        amount: 1000 * (10 - i as u64 + 1)
-                    },
-                }
-            );
-        }
+        assert_eq!(
+            farm.harvests[0].periods[9],
+            HarvestPeriod {
+                starts_at: Slot::new(20),
+                ends_at: Slot::new(25),
+                tps: TokenAmount::new(200),
+            }
+        );
     }
 
     #[test]
-    #[serial]
     fn it_gets_window_snapshots_eligible_to_harvest() -> Result<()> {
         // This test asserts that the associated function
         // `gets_window_snapshots_eligible` returns the expected
@@ -999,7 +1017,6 @@ mod tests {
         };
 
         let calculate_next_harvest_from = Slot { slot: 35 };
-        utils::set_clock(Slot { slot: 55 });
 
         let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1035,7 +1052,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_gets_only_open_if_calculate_next_harvest_from_eq_or_gt_last_snapshot_slot(
     ) -> Result<()> {
         // The intuition behind this test is that the method
@@ -1057,7 +1073,6 @@ mod tests {
         };
 
         let calculate_next_harvest_from = Slot { slot: 11 };
-        utils::set_clock(Slot { slot: 12 });
 
         let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1077,7 +1092,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_correctly_gets_snapshots_from_last_ring_buffer_cycle() -> Result<()> {
         let mut snapshots_buffer: Vec<Snapshot> =
             utils::generate_snapshots(&mut vec![(50, 2_000), (60, 10_000)]);
@@ -1106,7 +1120,6 @@ mod tests {
         };
 
         let calculate_next_harvest_from = Slot { slot: 45 };
-        utils::set_clock(Slot { slot: 65 });
 
         let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1143,7 +1156,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_correctly_gets_snapshots_eligible_for_harvest_if_history_is_lost(
     ) -> Result<()> {
         let snapshots_buffer: Vec<Snapshot> =
@@ -1158,7 +1170,6 @@ mod tests {
         };
 
         let calculate_next_harvest_from = Slot { slot: 55 };
-        utils::set_clock(Slot { slot: 82 });
 
         let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1195,7 +1206,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_correctly_gets_snapshots_eligible_for_harvest_if_history_is_lost_and_ring_buffer_completed_full_cycle(
     ) -> Result<()> {
         let mut snapshots_buffer: Vec<Snapshot> =
@@ -1238,7 +1248,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_gets_snapshots_if_starting_from_slot_zero_and_tip_at_the_end(
     ) -> Result<()> {
         let snapshots_buffer: Vec<Snapshot> = utils::generate_snapshots(
@@ -1258,7 +1267,6 @@ mod tests {
         };
 
         let calculate_next_harvest_from = Slot { slot: 0 };
-        utils::set_clock(Slot { slot: 100 });
 
         let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1270,7 +1278,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_gets_snapshots_if_starting_from_slot_zero_and_buffer_not_rotated(
     ) -> Result<()> {
         let snapshots_buffer: Vec<Snapshot> = utils::generate_snapshots(
@@ -1290,7 +1297,6 @@ mod tests {
         };
 
         let calculate_next_harvest_from = Slot { slot: 0 };
-        utils::set_clock(Slot { slot: 100 });
 
         let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1302,7 +1308,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_gets_snapshots_if_starting_from_slot_zero_and_buffer_rotated(
     ) -> Result<()> {
         let snapshots_buffer: Vec<Snapshot> =
@@ -1322,7 +1327,6 @@ mod tests {
         farm.take_snapshot(Slot::new(10), TokenAmount::new(1))?;
 
         let calculate_next_harvest_from = Slot { slot: 0 };
-        utils::set_clock(Slot { slot: 100 });
 
         let snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,
@@ -1334,7 +1338,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_gets_snapshots_after_buffer_rotated() -> Result<()> {
         let snapshots_buffer: Vec<Snapshot> =
             utils::generate_snapshots(&mut vec![(1, 1); consts::SNAPSHOTS_LEN]);
@@ -1353,7 +1356,6 @@ mod tests {
         farm.take_snapshot(Slot::new(10), TokenAmount::new(1))?;
 
         let calculate_next_harvest_from = Slot { slot: 4 };
-        utils::set_clock(Slot { slot: 100 });
 
         let mut snapshot_iter = farm.get_window_snapshots_eligible_to_harvest(
             calculate_next_harvest_from,

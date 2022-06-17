@@ -6,6 +6,7 @@ import { Farmer } from "../farmer";
 import {
   assertApproxCurrentSlot,
   errLogs,
+  getCurrentSlot,
   payer,
   provider,
   sleep,
@@ -99,23 +100,29 @@ export function test() {
     });
 
     it("updates farmer's eligible harvest", async () => {
+      const { mint: harvestMint } = await farm.addHarvest();
+
       const tokensPerSlot = 10;
       await farm.setMinSnapshotWindow(1);
-      const harvest = await farm.addHarvest();
-      await farm.setTokensPerSlot(harvest.mint, undefined, tokensPerSlot);
+      await farm.newHarvestPeriod(
+        harvestMint,
+        0,
+        (await getCurrentSlot()) + 100,
+        tokensPerSlot
+      );
       await farm.takeSnapshot();
 
       await farmer.startFarming(10);
       await sleep(1000);
       await farm.takeSnapshot();
-      const earningRewardsFromSlot = await provider.connection.getSlot();
+      const earningRewardsFromSlot = await getCurrentSlot();
       await sleep(1000);
       await farm.takeSnapshot();
       await sleep(1000);
       await farm.takeSnapshot();
 
       await farmer.startFarming(10);
-      const earnedRewardsToSlot = await provider.connection.getSlot();
+      const earnedRewardsToSlot = await getCurrentSlot();
 
       const farmerInfo = await farmer.fetch();
 
@@ -124,7 +131,7 @@ export function test() {
       await assertApproxCurrentSlot(farmerInfo.vestedAt);
       const harvests = farmerInfo.harvests as any[];
       const { tokens } = harvests.find(
-        (h) => h.mint.toString() === harvest.mint.toString()
+        (h) => h.mint.toString() === harvestMint.toString()
       );
       const earnedRewardsForSlots =
         earnedRewardsToSlot - earningRewardsFromSlot;

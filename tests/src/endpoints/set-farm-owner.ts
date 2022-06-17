@@ -1,8 +1,6 @@
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { createMint, getAccount } from "@solana/spl-token";
+import { Keypair } from "@solana/web3.js";
 import { Farm } from "../farm";
-
-import { assert, expect } from "chai";
+import { expect } from "chai";
 import { airdrop, errLogs } from "../helpers";
 
 export function test() {
@@ -23,7 +21,7 @@ export function test() {
       await airdrop(fakeAdmin.publicKey);
 
       const logs = await errLogs(
-        farm.setFarmOwner({
+        farm.setFarmOwner(Keypair.generate(), {
           admin: fakeAdmin,
         })
       );
@@ -31,20 +29,22 @@ export function test() {
     });
 
     it("fails if admin has not signed transaction", async () => {
-      await expect(farm.setFarmOwner({ skipAdminSignature: true })).to.be
-        .rejected;
+      await expect(
+        farm.setFarmOwner(Keypair.generate(), { skipAdminSignature: true })
+      ).to.be.rejected;
     });
 
     it("fails if new admin has not signed transaction", async () => {
-      await expect(farm.setFarmOwner({ skipNewAdminSignature: true })).to.be
-        .rejected;
+      await expect(
+        farm.setFarmOwner(Keypair.generate(), { skipNewAdminSignature: true })
+      ).to.be.rejected;
     });
 
     it("set new farm admin", async () => {
       const farmInfoBefore = await farm.fetch();
 
       const newFarmAdmin = Keypair.generate();
-      await farm.setFarmOwner({ newFarmAdmin });
+      await farm.setFarmOwner(newFarmAdmin);
       const farmInfoAfter = await farm.fetch();
 
       // farm admin should be updated to newAdmin

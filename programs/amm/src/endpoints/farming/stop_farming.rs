@@ -56,7 +56,7 @@ pub fn handle(
 
     accounts
         .farmer
-        .check_vested_period_and_update_harvest(&farm)?;
+        .check_vested_period_and_update_harvest(&farm, Slot::current()?)?;
 
     // removes the amount of tokens to be unstaked from the
     let unstake = accounts.farmer.unstake(unstake_max)?;

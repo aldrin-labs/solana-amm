@@ -110,10 +110,13 @@ down to the farmer's share of it. See [eq. (1)](#equations).
 The configuration value `ρ` is stored on `Farm`. An admin might want to
 distribute multiple harvest mints. Eg. we may distribute `RIN` and `SOL` for
 `USDC/ETH` pool farming. `Farm` must therefore have an array property
-`harvests` which is limited to `Ψ` entries. An entry represents a single
-harvest mint along with its configuration (such as `ρ`.) We opt for a value of
-`Ψ` based on a judgement call with the tokenomics team. In the old program,
-this value was 10. While a design with unlimited number of harvest mints would
+`harvests` which is limited to `Ψ` entries. An entry in `harvests` represents 
+a single harvest mint. To enhance the admin’s control over the farm, for each 
+given harvest mint, the program allows the admin to set up finite 
+non-overlapping harvest periods, up to a limit of 10, where each period has 
+its own `ρ`. In relation to the limit `Ψ` of harvests mints, we opt for a 
+value based on a judgement call with the tokenomics team. In the old program, 
+this value  was 10. While a design with unlimited number of harvest mints would
 be possible, it would require many accounts and out goal is to optimize for
 transaction size.
 
@@ -128,21 +131,29 @@ other just after a change in `ρ`.
 
 </details>
 
-We store on `Farm` a history of `ρ` for each harvest mint, ie. we store changes
-to this value. These changes are stored in a matrix, because there are
-different `ρ` values for different harvest mints. Eg. going with the example
-above, `RIN` might be emitted at different rate to `SOL`, they both have
-different `ρ`. An example of this matrix:
+For each harvest mint in a given farm, we store on `Farm` the farming periods, 
+each with its own `ρ`. Whenever the admin wants to change `p` he/she will have 
+to create a new farming period.
+
+
+These changes are stored in a matrix, because there are
+different `ρ` values for different harvest mints, for different periods of 
+time. Eg. going with the example above, `RIN` might be emitted at different 
+rate to `SOL`, they both have different `ρ`. An example of this matrix:
 
 ```
-----+-------------------+-------------------+-----
-SOL | slot 39; value 10 | slot 20; value 25 | ...
-RIN | slot 50; value 12 | slot 30; value 80 | ...
+----+----------------------------+----------------------------+-----
+SOL | value 10; slot 21; slot 39 | value 25; slot 20; slot 5  | ...
+RIN | value 12; slot 31; slot 50 | value 80; slot 30; slot 10 | ...
 ...
 ```
 
-We order each row in the matrix in time by the slot. Ie. when an admin changes
-this setting, we shift the array to right and insert the new value to index 0.
+In each period, represented by element of the matrix in a given row, the 
+starting point corresponds to the first slot and the ending point corresponds 
+to the second slot in the tupple.
+We order each row in the matrix in descending order of periods. Ie. when an 
+admin changes adds a new period, we shift the array to right and insert the new 
+value to index 0.
 The number of changes to this value is limited by the length of a row in the
 matrix. This is a hard coded value in the code base.
 
@@ -200,14 +211,16 @@ Admin wants to change `ρ`, but to calculate harvest for users we must remember
 
 </details>
 
-The history of changes to `ρ` is limited. We store it a queue from which we pop
-oldest setting. With each change we remember when did the admin trigger it. A
-change is only valid from the next snapshot, since the open snapshot must have
-a constant emission rate (otherwise 2 users would see different harvest for the
-same stake amount.) We prevent the admin from changing `ρ` if the history is
-full and the oldest change is still within the history of snapshots. Only once
-the oldest `ρ` change is older than the oldest snapshot can admin call
-`set_tokens_per_slot` endpoint.
+The history of changes to `ρ` is limited by the limited amount of harvest 
+periods. We store the periods, and consequently `p`, in a queue from which we 
+pop oldest period. With each change we remember when did the admin trigger it.
+The harvests periods do not have to match the snapshots at their start nor at
+their end. The eligible harvest in a given snapshot can be processes by the 
+program even if there are multiple harvest periods within it, with distinct 
+`p` values.
+
+Whenever we encouter ourselves in a harvesting period, the `p` of such period 
+cannot be altered, only the `p` of harvest periods which have not yet started.
 
 To summarize, a `Farm` account contains data about:
 
@@ -221,7 +234,8 @@ To summarize, a `Farm` account contains data about:
 
 - a _snapshot ring buffer_;
 
-- an array of _harvests_. For each harvest we store the history of `ρ` and a
+- an array of _harvests_. For each harvest we store the harvest _periods_, each 
+  with its own `ρ`, the _harvest mint_ and a
   _harvest vault_ from which the harvest tokens are transferred to farmers.
 
 ### `Farmer`
@@ -247,7 +261,8 @@ The endpoint increments _available harvest_ token counter on `Farmer`. Should
 for some reason automation fail for weeks on end, and the user wouldn't perform
 this operation manually either, then we need to have an edge-case condition:
 burn all harvest until oldest buffer entry. Farmers won't have to re-stake
-ever, farming can run ad infinitum.
+ever, farming can run ad infinitum, however farmers will only accumulate 
+harvest throughout the timespan of available harvest periods.
 
 <details>
 <summary markdown="span">

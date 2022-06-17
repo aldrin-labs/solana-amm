@@ -1,9 +1,4 @@
-import {
-  airdrop,
-  assertApproxCurrentSlot,
-  errLogs,
-  provider,
-} from "../helpers";
+import { airdrop, errLogs, provider } from "../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import { expect } from "chai";
@@ -88,16 +83,10 @@ export function test() {
     it("works", async () => {
       const farmInfoBefore = await farm.fetch();
 
-      // create two harvests, one with default (0) rho and one with 10
       const harvest1 = await farm.addHarvest();
-      const harvest2Rho = 10;
-      const harvest2 = await farm.addHarvest({
-        tokensPerSlot: harvest2Rho,
-      });
+      const harvest2 = await farm.addHarvest();
 
       const farmInfo = await farm.fetch();
-
-      const currentSlot = await provider.connection.getSlot();
 
       const harvests = farmInfo.harvests as any[];
       expect(harvests).to.be.lengthOf(10);
@@ -108,37 +97,15 @@ export function test() {
       delete farmInfoBefore.harvests;
       expect(farmInfo).to.deep.eq(farmInfoBefore);
 
-      // The slot of update should be approximately current slot and the
-      // rho should be as provided in the argument. All the other fields in the
-      // tokens per slot history array should be default.
-      await assertApproxCurrentSlot(harvests[0].tokensPerSlot[0].at);
-      expect(harvests[0].tokensPerSlot[0].value.amount.toNumber()).to.eq(0);
-      harvests[0].tokensPerSlot.slice(1).forEach(({ value, at }) => {
-        expect(value.amount.toNumber()).to.eq(0);
-        expect(at.slot.toNumber()).to.eq(0);
-      });
-
-      await assertApproxCurrentSlot(harvests[1].tokensPerSlot[0].at);
-      expect(harvests[1].tokensPerSlot[0].value.amount.toNumber()).to.eq(
-        harvest2Rho
-      );
-      harvests[1].tokensPerSlot.slice(1).forEach(({ value, at }) => {
-        expect(value.amount.toNumber()).to.eq(0);
-        expect(at.slot.toNumber()).to.eq(0);
-      });
-
-      delete farmInfo.harvests;
-      delete farmInfoBefore.harvests;
-      expect(farmInfo).to.deep.eq(farmInfoBefore);
-
       harvests.slice(2).forEach((h) => {
         expect(h.mint).to.deep.eq(PublicKey.default);
         expect(h.vault).to.deep.eq(PublicKey.default);
-
-        expect(h.tokensPerSlot).to.be.lengthOf(10);
-        h.tokensPerSlot.forEach(({ value, at }) => {
-          expect(value.amount.toNumber()).to.eq(0);
-          expect(at.slot.toNumber()).to.eq(0);
+      });
+      harvests.forEach((h) => {
+        h.periods.forEach(({ startsAt, endsAt, tps }) => {
+          expect(tps.amount.toNumber()).to.eq(0);
+          expect(startsAt.slot.toNumber()).to.eq(0);
+          expect(endsAt.slot.toNumber()).to.eq(0);
         });
       });
 

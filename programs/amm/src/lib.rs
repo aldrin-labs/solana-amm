@@ -25,11 +25,8 @@ pub mod amm {
         endpoints::farming::create_farm::handle(ctx)
     }
 
-    pub fn add_harvest(
-        ctx: Context<AddHarvest>,
-        tokens_per_slot: TokenAmount,
-    ) -> Result<()> {
-        endpoints::farming::add_harvest::handle(ctx, tokens_per_slot)
+    pub fn add_harvest(ctx: Context<AddHarvest>) -> Result<()> {
+        endpoints::farming::add_harvest::handle(ctx)
     }
 
     pub fn remove_harvest(
@@ -43,16 +40,18 @@ pub mod amm {
         endpoints::set_farm_owner::handle(ctx)
     }
 
-    pub fn set_tokens_per_slot(
-        ctx: Context<SetTokensPerSlot>,
+    pub fn new_harvest_period(
+        ctx: Context<NewHarvestPeriod>,
         harvest_mint: Pubkey,
-        valid_from_slot: Slot,
+        starts_at: Slot,
+        ends_at: Slot,
         tokens_per_slot: TokenAmount,
     ) -> Result<()> {
-        endpoints::farming::set_tokens_per_slot::handle(
+        endpoints::farming::new_harvest_period::handle(
             ctx,
             harvest_mint,
-            valid_from_slot,
+            starts_at,
+            ends_at,
             tokens_per_slot,
         )
     }
