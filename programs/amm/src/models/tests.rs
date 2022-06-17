@@ -1,14 +1,9 @@
 //! This could be moved to integration tests at `amm/tests/` eventually.
 
-use crate::prelude::utils::set_clock;
 use crate::prelude::*;
-use serial_test::serial;
 
 #[test]
-#[serial]
 fn it_updates_eligible_harvest_for_multiple_farmers() -> Result<()> {
-    set_clock(Slot::new(0));
-
     let mut farm = Farm {
         min_snapshot_window_slots: 1,
         ..Default::default()
@@ -16,39 +11,50 @@ fn it_updates_eligible_harvest_for_multiple_farmers() -> Result<()> {
 
     let harvest = Pubkey::new_unique();
     let tps = 100;
-    farm.add_harvest(harvest, Pubkey::new_unique(), TokenAmount::new(tps))?;
 
-    let mut farmer1 = Farmer::default();
-    let mut farmer2 = Farmer::default();
-    let mut farmer3 = Farmer::default();
-
-    set_clock(Slot::new(1));
+    farm.add_harvest(harvest, Pubkey::new_unique())?;
+    farm.new_harvest_period(
+        Slot::new(0),
+        harvest,
+        (Slot::new(1), Slot::new(u64::MAX)),
+        TokenAmount::new(tps),
+    )?;
     farm.take_snapshot(Slot::new(1), TokenAmount::new(0))?;
 
+    let mut farmer1 = Farmer {
+        calculate_next_harvest_from: Slot::new(1),
+        ..Default::default()
+    };
+    let mut farmer2 = Farmer {
+        calculate_next_harvest_from: Slot::new(1),
+        ..Default::default()
+    };
+    let mut farmer3 = Farmer {
+        calculate_next_harvest_from: Slot::new(1),
+        ..Default::default()
+    };
     let total_staked = 100;
-    farmer1.add_to_vested(TokenAmount::new(40))?;
-    farmer2.add_to_vested(TokenAmount::new(40))?;
-    farmer3.add_to_vested(TokenAmount::new(20))?;
+    farmer1.add_to_vested(Slot::new(1), TokenAmount::new(40))?;
+    farmer2.add_to_vested(Slot::new(1), TokenAmount::new(40))?;
+    farmer3.add_to_vested(Slot::new(1), TokenAmount::new(20))?;
 
     let mut farmers = vec![farmer1, farmer2, farmer3];
 
     // start earning harvest from slot 4
-    set_clock(Slot::new(4));
     farm.take_snapshot(Slot::new(4), TokenAmount::new(total_staked))?;
-    set_clock(Slot::new(8));
     farm.take_snapshot(Slot::new(8), TokenAmount::new(total_staked))?;
 
-    farmers
-        .iter_mut()
-        .for_each(|f| f.check_vested_period_and_update_harvest(&farm).unwrap());
+    farmers.iter_mut().for_each(|f| {
+        f.check_vested_period_and_update_harvest(&farm, Slot::new(8))
+            .unwrap()
+    });
 
-    set_clock(Slot::new(12));
     farm.take_snapshot(Slot::new(12), TokenAmount::new(total_staked))?;
-    set_clock(Slot::new(14));
 
     // last slot to earn harvest for is 14
     farmers.iter_mut().for_each(|f| {
-        f.check_vested_period_and_update_harvest(&farm).unwrap();
+        f.check_vested_period_and_update_harvest(&farm, Slot::new(14))
+            .unwrap();
         assert_eq!(f.calculate_next_harvest_from.slot, 15);
     });
 

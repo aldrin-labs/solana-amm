@@ -3,7 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
-import { errLogs, provider, sleep } from "../helpers";
+import { errLogs, getCurrentSlot, provider, sleep } from "../helpers";
 
 export function test() {
   describe("claim_eligible_harvest", () => {
@@ -22,17 +22,27 @@ export function test() {
       await farm.setMinSnapshotWindow(1);
     });
 
-    beforeEach("create farmers", async () => {
+    beforeEach("create farmer", async () => {
       farmer = await Farmer.init(farm);
       await farmer.airdropStakeTokens();
     });
 
     beforeEach("create harvests", async () => {
-      harvest1 = await farm.addHarvest({ tokensPerSlot: tokensPerSlot1 });
-      await farm.airdropHarvestTokens(harvest1.mint, harvest1.vault);
+      harvest1 = await farm.addHarvest();
+      await farm.newHarvestPeriod(
+        harvest1.mint,
+        0,
+        (await getCurrentSlot()) + 100,
+        tokensPerSlot1
+      );
 
-      harvest2 = await farm.addHarvest({ tokensPerSlot: tokensPerSlot2 });
-      await farm.airdropHarvestTokens(harvest2.mint, harvest2.vault);
+      harvest2 = await farm.addHarvest();
+      await farm.newHarvestPeriod(
+        harvest2.mint,
+        0,
+        (await getCurrentSlot()) + 100,
+        tokensPerSlot2
+      );
 
       farmerVaultWalletPairs = [
         [harvest1.vault, await farmer.harvestWalletPubkey(harvest1.mint)],
@@ -61,9 +71,13 @@ export function test() {
     it("fails if staking vault is used as harvest vault", async () => {
       const harvest = await farm.addHarvest({
         harvestMint: farm.stakeMint,
-        tokensPerSlot: 10,
       });
-      await farm.airdropHarvestTokens(harvest.mint, harvest.vault);
+      await farm.newHarvestPeriod(
+        harvest.mint,
+        0,
+        (await getCurrentSlot()) + 100,
+        100
+      );
 
       await farmer.startFarming(10);
       await sleep(1000);
@@ -98,9 +112,6 @@ export function test() {
     });
 
     it("works", async () => {
-      await farm.setTokensPerSlot(harvest1.mint, undefined, tokensPerSlot1);
-      await farm.setTokensPerSlot(harvest2.mint, undefined, tokensPerSlot2);
-
       await farm.takeSnapshot();
 
       await farmer.airdropStakeTokens(10);

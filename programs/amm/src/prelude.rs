@@ -26,7 +26,7 @@ pub mod utils {
             snapshots_raw_vec.append(&mut slack_vec);
         }
 
-        let snapshots_vec = snapshots_raw_vec
+        let snapshots_vec: Vec<Snapshot> = snapshots_raw_vec
             .iter()
             .map(|(slot, staked)| Snapshot {
                 started_at: Slot { slot: *slot },
@@ -37,28 +37,56 @@ pub mod utils {
         snapshots_vec
     }
 
-    pub fn generate_harvests(
-        harvest_raw_vec: &mut Vec<(Pubkey, [TokensPerSlotHistory; 10])>,
-    ) -> Vec<Harvest> {
-        if harvest_raw_vec.len() < consts::MAX_HARVEST_MINTS {
-            let slack = consts::MAX_HARVEST_MINTS - harvest_raw_vec.len();
-            let mut slack_vec: Vec<(
-                Pubkey,
-                [TokensPerSlotHistory; consts::TOKENS_PER_SLOT_HISTORY_LEN],
-            )> = vec![(Default::default(), Default::default()); slack];
-            harvest_raw_vec.append(&mut slack_vec);
-        }
+    /// Returns a harvest mint pubkey added to a farm.
+    ///
+    /// The farm has 4 periods:
+    /// 1. (1, 3) with tps 1
+    /// 2. (5, 9) with tps 10
+    /// 3. (10, 14) with tps 20
+    /// 4. (15, 30) with tps 30
+    ///
+    /// And 4. snapshots:
+    /// 1. slot 1 with staked 100
+    /// 1. slot 7 with staked 100
+    /// 1. slot 10 with staked 200
+    /// 1. slot 15 with staked 400
+    pub fn dummy_farm_1() -> Result<(Pubkey, Farm)> {
+        let harvest_mint = Pubkey::new_unique();
+        let mut farm = Farm::default();
+        farm.min_snapshot_window_slots = 1;
+        farm.add_harvest(harvest_mint, Pubkey::new_unique())?;
 
-        let harvest_vec = harvest_raw_vec
-            .iter()
-            .map(|(mint, tps)| Harvest {
-                mint: *mint,
-                tokens_per_slot: *tps,
-                ..Default::default()
-            })
-            .collect();
+        farm.take_snapshot(Slot::new(1), TokenAmount::new(100))?;
+        farm.new_harvest_period(
+            Slot::new(1),
+            harvest_mint,
+            (Slot::new(1), Slot::new(3)),
+            TokenAmount::new(1),
+        )?;
 
-        harvest_vec
+        farm.take_snapshot(Slot::new(7), TokenAmount::new(100))?;
+        farm.new_harvest_period(
+            Slot::new(5),
+            harvest_mint,
+            (Slot::new(5), Slot::new(9)),
+            TokenAmount::new(10),
+        )?;
+        farm.take_snapshot(Slot::new(10), TokenAmount::new(200))?;
+        farm.new_harvest_period(
+            Slot::new(10),
+            harvest_mint,
+            (Slot::new(10), Slot::new(14)),
+            TokenAmount::new(20),
+        )?;
+        farm.take_snapshot(Slot::new(15), TokenAmount::new(400))?;
+        farm.new_harvest_period(
+            Slot::new(15),
+            harvest_mint,
+            (Slot::new(15), Slot::new(30)),
+            TokenAmount::new(30),
+        )?;
+
+        Ok((harvest_mint, farm))
     }
 
     pub fn generate_farmer_harvests(
@@ -82,27 +110,61 @@ pub mod utils {
         snapshots_vec
     }
 
-    pub fn generate_tps_history(
-        tps_raw_vec: &mut Vec<(u64, u64)>,
-    ) -> Vec<TokensPerSlotHistory> {
-        if tps_raw_vec.len() < consts::TOKENS_PER_SLOT_HISTORY_LEN {
-            let slack = consts::TOKENS_PER_SLOT_HISTORY_LEN - tps_raw_vec.len();
-            let mut slack_vec: Vec<(u64, u64)> = vec![(0, 0); slack];
-            tps_raw_vec.append(&mut slack_vec);
-        }
-        if tps_raw_vec.len() > consts::TOKENS_PER_SLOT_HISTORY_LEN {
-            tps_raw_vec.truncate(consts::TOKENS_PER_SLOT_HISTORY_LEN)
+    pub fn generate_harvest_periods(
+        periods_raw_vec: &mut Vec<(u64, u64, u64)>,
+    ) -> Vec<HarvestPeriod> {
+        if periods_raw_vec.len() < consts::HARVEST_PERIODS_LEN {
+            let slack = consts::HARVEST_PERIODS_LEN - periods_raw_vec.len();
+            let mut slack_vec: Vec<(u64, u64, u64)> = vec![(0, 0, 0); slack];
+            periods_raw_vec.append(&mut slack_vec);
         }
 
-        let tps_vec = tps_raw_vec
+        let snapshots_vec: Vec<HarvestPeriod> = periods_raw_vec
             .iter()
-            .map(|(slot, tps)| TokensPerSlotHistory {
-                at: Slot::new(*slot),
-                value: TokenAmount::new(*tps),
+            .map(|(tps, starts_at, ends_at)| HarvestPeriod {
+                tps: TokenAmount { amount: *tps },
+                starts_at: Slot { slot: *starts_at },
+                ends_at: Slot { slot: *ends_at },
             })
             .collect();
 
-        tps_vec
+        snapshots_vec
+    }
+
+    pub fn generate_farm_harvests(
+        harvests_raw_vec: &mut Vec<(
+            Pubkey,
+            Pubkey,
+            [HarvestPeriod; consts::HARVEST_PERIODS_LEN],
+        )>,
+    ) -> Vec<Harvest> {
+        if harvests_raw_vec.len() < consts::MAX_HARVEST_MINTS {
+            let slack = consts::MAX_HARVEST_MINTS - harvests_raw_vec.len();
+            let mut slack_vec: Vec<(
+                Pubkey,
+                Pubkey,
+                [HarvestPeriod; consts::HARVEST_PERIODS_LEN],
+            )> = vec![
+                (
+                    Default::default(),
+                    Default::default(),
+                    [HarvestPeriod::default(); 10]
+                );
+                slack
+            ];
+            harvests_raw_vec.append(&mut slack_vec);
+        }
+
+        let snapshots_vec: Vec<Harvest> = harvests_raw_vec
+            .iter()
+            .map(|(mint, vault, periods)| Harvest {
+                mint: *mint,
+                vault: *vault,
+                periods: *periods,
+            })
+            .collect();
+
+        snapshots_vec
     }
 
     struct SyscallStubs {

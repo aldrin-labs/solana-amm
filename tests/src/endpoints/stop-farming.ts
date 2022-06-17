@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
 import { getAccount, getMint } from "@solana/spl-token";
-import { errLogs, provider, sleep, amm } from "../helpers";
+import { errLogs, provider, sleep, getCurrentSlot } from "../helpers";
 
 export function test() {
   describe("stop_farming", () => {
@@ -90,25 +90,31 @@ export function test() {
     });
 
     it("updates farmer's eligible harvest", async () => {
+      const { mint: harvestMint } = await farm.addHarvest();
+
       await farmer.airdropStakeTokens(20);
       const tokensPerSlot = 10;
       await farm.setMinSnapshotWindow(1);
-      const harvest = await farm.addHarvest();
-      await farm.setTokensPerSlot(harvest.mint, undefined, tokensPerSlot);
+      await farm.newHarvestPeriod(
+        harvestMint,
+        0,
+        (await getCurrentSlot()) + 100,
+        tokensPerSlot
+      );
       await farm.takeSnapshot();
 
       await farmer.startFarming(20);
 
       await sleep(1000);
       await farm.takeSnapshot();
-      const earningRewardsFromSlot = await provider.connection.getSlot();
+      const earningRewardsFromSlot = await getCurrentSlot();
       await sleep(1000);
       await farm.takeSnapshot();
       await sleep(1000);
       await farm.takeSnapshot();
 
       await farmer.stopFarming(10);
-      const earnedRewardsToSlot = await provider.connection.getSlot();
+      const earnedRewardsToSlot = await getCurrentSlot();
       sleep(1000);
       await farm.takeSnapshot();
 
@@ -118,7 +124,7 @@ export function test() {
 
       const harvests = farmerInfoAfter.harvests as any[];
       const { tokens } = harvests.find(
-        (h) => h.mint.toString() === harvest.mint.toString()
+        (h) => h.mint.toString() === harvestMint.toString()
       );
 
       const earnedRewardsForSlots =

@@ -3,6 +3,7 @@
     "scripts": {
         "fmt": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
         "fmt-check": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+        "ts-check": "tsc --noEmit",
         "lint": "tslint -c tslint.json 'tests/src/**/*.ts'",
         "build": "anchor build",
         "test": "anchor test"

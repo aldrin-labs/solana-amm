@@ -28,7 +28,7 @@ pub fn handle(ctx: Context<UpdateEligibleHarvest>) -> Result<()> {
 
     accounts
         .farmer
-        .check_vested_period_and_update_harvest(&farm)?;
+        .check_vested_period_and_update_harvest(&farm, Slot::current()?)?;
 
     Ok(())
 }

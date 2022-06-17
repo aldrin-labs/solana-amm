@@ -64,10 +64,11 @@ export function test() {
         expect(h.mint).to.deep.eq(PublicKey.default);
         expect(h.vault).to.deep.eq(PublicKey.default);
 
-        expect(h.tokensPerSlot).to.be.lengthOf(10);
-        h.tokensPerSlot.forEach(({ value, at }) => {
-          expect(value.amount.toNumber()).to.eq(0);
-          expect(at.slot.toNumber()).to.eq(0);
+        expect(h.periods).to.be.lengthOf(10);
+        h.periods.forEach(({ tps, startsAt, endsAt }) => {
+          expect(tps.amount.toNumber()).to.eq(0);
+          expect(startsAt.slot.toNumber()).to.eq(0);
+          expect(endsAt.slot.toNumber()).to.eq(0);
         });
       });
 

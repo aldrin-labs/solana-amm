@@ -7,6 +7,7 @@ import {
   mintTo,
   Account,
   getAccount,
+  getOrCreateAssociatedTokenAccount,
 } from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
 import { Farmer } from "./farmer";
@@ -28,7 +29,6 @@ export interface AddHarvestArgs {
   harvestVault: PublicKey;
   pda: PublicKey;
   skipAdminSignature: boolean;
-  tokensPerSlot: number;
 }
 
 export interface RemoveHarvestArgs {
@@ -53,21 +53,24 @@ export interface SetMinSnapshotWindowArgs {
   skipAdminSignature: boolean;
 }
 
-export interface SetFarmOwner {
+export interface SetFarmOwnerArgs {
   admin: Keypair;
   farm: PublicKey;
-  newFarmAdmin: Keypair;
   skipAdminSignature: boolean;
   skipNewAdminSignature: boolean;
 }
 
-export interface SetTokensPerSlot {
+export interface NewHarvestPeriodArgs {
   admin: Keypair;
   farm: PublicKey;
   skipAdminSignature: boolean;
+  harvestVault: PublicKey;
+  harvestWallet: PublicKey;
+  signerPda: PublicKey;
+  depositTokens: boolean;
 }
 
-export interface FarmWhitelist {
+export interface FarmWhitelistArgs {
   admin: Keypair;
   sourceFarm: PublicKey;
   targetFarm: PublicKey;
@@ -75,7 +78,7 @@ export interface FarmWhitelist {
   skipAdminSignature: boolean;
 }
 
-export interface CompoundSameFarm {
+export interface CompoundSameFarmArgs {
   farm: PublicKey;
   stakeVault: PublicKey;
   harvestVault: PublicKey;
@@ -84,7 +87,7 @@ export interface CompoundSameFarm {
   whitelistCompounding: PublicKey;
 }
 
-export interface CompoundAcrossFarms {
+export interface CompoundAcrossFarmsArgs {
   sourceFarm: PublicKey;
   targetFarm: PublicKey;
   targetStakeVault: PublicKey;
@@ -114,11 +117,12 @@ export class Farm {
     const skipAdminSignature = input.skipAdminSignature ?? false;
     const skipCreateFarm = input.skipCreateFarm ?? false;
     const skipKeypairSignature = input.skipAdminSignature ?? skipCreateFarm;
-    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
-      [Buffer.from("signer"), farmKeypair.publicKey.toBytes()],
-      amm.programId
-    );
-    const farmSignerPda = input.pda ?? correctPda;
+    const farmSignerPda =
+      input.pda ??
+      (await (async () => {
+        const [pda, _] = await Farm.signerFrom(farmKeypair.publicKey);
+        return pda;
+      })());
 
     const stakeMint =
       input.stakeMint ??
@@ -198,6 +202,11 @@ export class Farm {
     return Farm.signerFrom(this.id);
   }
 
+  public async signerPda(): Promise<PublicKey> {
+    const [pda, _] = await Farm.signerFrom(this.id);
+    return pda;
+  }
+
   public async findWhitelistPda(targetFarm: PublicKey): Promise<PublicKey> {
     const [pda, _signerBumpSeed] = await PublicKey.findProgramAddress(
       [
@@ -210,16 +219,24 @@ export class Farm {
     return pda;
   }
 
+  public async harvestVault(mint: PublicKey): Promise<PublicKey> {
+    const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
+      [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
+      amm.programId
+    );
+    return pda;
+  }
+
+  public async harvestVaultAccount(mint: PublicKey): Promise<Account> {
+    const pda = await this.harvestVault(mint);
+    return getAccount(provider.connection, pda);
+  }
+
   public async addHarvest(input: Partial<AddHarvestArgs> = {}): Promise<{
     mint: PublicKey;
     vault: PublicKey;
   }> {
-    const tokensPerSlot = { amount: new BN(input.tokensPerSlot ?? 0) };
-    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
-      [Buffer.from("signer"), this.id.toBytes()],
-      amm.programId
-    );
-    const farmSignerPda = input.pda ?? correctPda;
+    const farmSignerPda = input.pda ?? (await this.signerPda());
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
@@ -230,18 +247,7 @@ export class Farm {
       })());
 
     const harvestVault =
-      input.harvestVault ??
-      (await (async () => {
-        const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
-          [
-            Buffer.from("harvest_vault"),
-            this.id.toBytes(),
-            harvestMint.toBytes(),
-          ],
-          amm.programId
-        );
-        return pda;
-      })());
+      input.harvestVault ?? (await this.harvestVault(harvestMint));
 
     const signers = [];
     if (!skipAdminSignature) {
@@ -249,7 +255,7 @@ export class Farm {
     }
 
     await amm.methods
-      .addHarvest(tokensPerSlot)
+      .addHarvest()
       .accounts({
         admin: admin.publicKey,
         farm: this.id,
@@ -270,20 +276,11 @@ export class Farm {
     mint: PublicKey,
     input: Partial<RemoveHarvestArgs> = {}
   ): Promise<PublicKey> {
-    const [correctPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
-      [Buffer.from("signer"), this.id.toBytes()],
-      amm.programId
-    );
-    const pda = input.pda ?? correctPda;
+    const pda = input.pda ?? (await this.signerPda());
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
-    const [correctVaultPda, _vaultBumpSeed] =
-      await PublicKey.findProgramAddress(
-        [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
-        amm.programId
-      );
-    const harvestVault = input.harvestVault ?? correctVaultPda;
+    const harvestVault = input.harvestVault ?? (await this.harvestVault(mint));
 
     const adminHarvestWallet =
       input.adminHarvestWallet ??
@@ -420,10 +417,12 @@ export class Farm {
     );
   }
 
-  public async setFarmOwner(input: Partial<SetFarmOwner> = {}) {
+  public async setFarmOwner(
+    newFarmAdmin: Keypair,
+    input: Partial<SetFarmOwnerArgs> = {}
+  ) {
     const admin = input.admin ?? this.admin;
     const farm = input.farm ?? this.id;
-    const newFarmAdmin = input.newFarmAdmin ?? Keypair.generate();
     const skipAdminSignature = input.skipAdminSignature ?? false;
     const skipNewAdminSignature = input.skipNewAdminSignature ?? false;
 
@@ -446,38 +445,69 @@ export class Farm {
       .rpc();
   }
 
-  public async setTokensPerSlot(
+  public async adminHarvestWallet(mint: PublicKey): Promise<PublicKey> {
+    const { address } = await this.adminHarvestWalletAccount(mint);
+    return address;
+  }
+
+  public async adminHarvestWalletAccount(mint: PublicKey): Promise<Account> {
+    return getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      payer,
+      mint,
+      this.admin.publicKey
+    );
+  }
+
+  public async newHarvestPeriod(
     harvestMint: PublicKey,
-    validFromSlot: number = 0,
-    tokensPerSlot: number = 0,
-    input: Partial<SetTokensPerSlot> = {}
+    fromSlot: number,
+    untilSlot: number,
+    tokensPerSlot: number,
+    input: Partial<NewHarvestPeriodArgs> = {}
   ): Promise<void> {
     const admin = input.admin ?? this.admin;
     const farm = input.farm ?? this.id;
     const skipAdminSignature = input.skipAdminSignature ?? false;
+    const harvestVault =
+      input.harvestVault ?? (await this.harvestVault(harvestMint));
+    const harvestWallet =
+      input.harvestWallet ?? (await this.adminHarvestWallet(harvestMint));
+    const farmSignerPda = input.signerPda ?? (await this.signerPda());
+
+    if (input.depositTokens ?? true) {
+      await this.airdropHarvestTokens(
+        harvestMint,
+        harvestWallet,
+        (untilSlot - fromSlot + 1) * tokensPerSlot
+      );
+    }
 
     const signers = [];
-
     if (!skipAdminSignature) {
       signers.push(admin);
     }
 
     await amm.methods
-      .setTokensPerSlot(
+      .newHarvestPeriod(
         harvestMint,
-        { slot: new BN(validFromSlot) },
+        { slot: new BN(fromSlot) },
+        { slot: new BN(untilSlot) },
         { amount: new BN(tokensPerSlot) }
       )
       .accounts({
         admin: admin.publicKey,
         farm,
+        harvestVault,
+        harvestWallet,
+        farmSignerPda,
       })
       .signers(signers)
       .rpc();
   }
 
-  public async WhitelistFarmForCompounding(
-    input: Partial<FarmWhitelist> = {}
+  public async whitelistFarmForCompounding(
+    input: Partial<FarmWhitelistArgs> = {}
   ): Promise<void> {
     const admin = input.admin ?? this.admin;
     const sourceFarm = input.sourceFarm ?? this.id;
@@ -496,7 +526,6 @@ export class Farm {
     const whitelistCompounding = input.whitelistCompounding ?? correctPda;
 
     const signers = [];
-
     if (!skipAdminSignature) {
       signers.push(admin);
     }
@@ -513,8 +542,8 @@ export class Farm {
       .rpc();
   }
 
-  public async DewhitelistFarmForCompounding(
-    input: Partial<FarmWhitelist> = {}
+  public async dewhitelistFarmForCompounding(
+    input: Partial<FarmWhitelistArgs> = {}
   ): Promise<void> {
     const admin = input.admin ?? this.admin;
     const sourceFarm = input.sourceFarm ?? this.id;
@@ -552,19 +581,13 @@ export class Farm {
 
   public async compoundSameFarm(
     mint: PublicKey,
-    input: Partial<CompoundSameFarm> = {}
+    input: Partial<CompoundSameFarmArgs> = {}
   ): Promise<void> {
     const farm = input.farm ?? this.id;
     const stakeVault = input.stakeVault ?? (await this.stakeVault());
     const farmer = input.farmer ?? Keypair.generate().publicKey;
 
-    // Harvest Vault
-    const [correctVaultPda, _vaultBumpSeed] =
-      await PublicKey.findProgramAddress(
-        [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
-        amm.programId
-      );
-    const harvestVault = input.harvestVault ?? correctVaultPda;
+    const harvestVault = input.harvestVault ?? (await this.harvestVault(mint));
 
     // Whitelist PDA
     const [whitelistCorrectPda, _signerBumpSeed] =
@@ -575,12 +598,7 @@ export class Farm {
     const whitelistCompounding =
       input.whitelistCompounding ?? whitelistCorrectPda;
 
-    // Farm Signer PDA
-    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
-      [Buffer.from("signer"), farm.toBytes()],
-      amm.programId
-    );
-    const farmSignerPda = input.farmSignerPda ?? correctPda;
+    const farmSignerPda = input.farmSignerPda ?? (await this.signerPda());
 
     await amm.methods
       .compoundSameFarm()
@@ -597,7 +615,7 @@ export class Farm {
 
   public async compoundAcrossFarms(
     mint: PublicKey,
-    input: Partial<CompoundAcrossFarms> = {}
+    input: Partial<CompoundAcrossFarmsArgs> = {}
   ): Promise<void> {
     const sourceFarm = input.sourceFarm ?? this.id;
 
@@ -617,13 +635,8 @@ export class Farm {
       input.targetFarmer ??
       (await (await Farmer.init(possibleTargetFarm)).id());
 
-    // Harvest Vault
-    const [correctVaultPda, _vaultBumpSeed] =
-      await PublicKey.findProgramAddress(
-        [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
-        amm.programId
-      );
-    const sourceHarvestVault = input.sourceHarvestVault ?? correctVaultPda;
+    const sourceHarvestVault =
+      input.sourceHarvestVault ?? (await this.harvestVault(mint));
 
     // Whitelist PDA
     const [whitelistCorrectPda, _signerBumpSeed] =
@@ -638,12 +651,8 @@ export class Farm {
 
     const whitelistCompounding =
       input.whitelistCompounding ?? whitelistCorrectPda;
-    // Farm Signer PDA
-    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
-      [Buffer.from("signer"), sourceFarm.toBytes()],
-      amm.programId
-    );
-    const sourceFarmSignerPda = input.sourceFarmSignerPda ?? correctPda;
+    const sourceFarmSignerPda =
+      input.sourceFarmSignerPda ?? (await this.signerPda());
 
     await amm.methods
       .compoundAcrossFarms()

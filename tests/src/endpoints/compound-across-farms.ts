@@ -1,6 +1,14 @@
-import { amm, payer, provider, airdrop, errLogs, sleep } from "../helpers";
+import {
+  amm,
+  payer,
+  provider,
+  airdrop,
+  errLogs,
+  sleep,
+  getCurrentSlot,
+} from "../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { createMint, mintTo, getAccount } from "@solana/spl-token";
+import { createMint, getAccount } from "@solana/spl-token";
 import { expect } from "chai";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
@@ -63,7 +71,7 @@ export function test() {
         harvestMint: targetFarm.stakeMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
@@ -98,7 +106,7 @@ export function test() {
         harvestMint: targetFarm.stakeMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
@@ -136,7 +144,7 @@ export function test() {
         harvestMint: wrongMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
@@ -165,7 +173,7 @@ export function test() {
         harvestMint: sourceFarm.stakeMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: sourceFarm.id,
       });
 
@@ -198,7 +206,7 @@ export function test() {
         harvestMint: targetFarm.stakeMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
@@ -231,39 +239,23 @@ export function test() {
         harvestMint: targetFarm.stakeMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
-      // Airdrop fresh minted tokens to harvest.vault
-      await mintTo(
-        provider.connection,
-        payer,
-        sourceHarvest.mint,
-        sourceHarvest.vault,
-        admin,
-        1_000
-      );
-
       await sourceFarmer.airdropStakeTokens();
-
-      let sourceHarvestVaultInfo = await getAccount(
-        provider.connection,
-        sourceHarvest.vault
-      );
 
       const sourceStakeVaultInfo = await getAccount(
         provider.connection,
         sourceStakeVault
       );
-
-      expect(Number(sourceHarvestVaultInfo.amount)).to.eq(1_000);
       expect(Number(sourceStakeVaultInfo.amount)).to.eq(0);
 
       const tokensPerSlot = 10;
-      await sourceFarm.setTokensPerSlot(
+      await sourceFarm.newHarvestPeriod(
         sourceHarvest.mint,
-        undefined,
+        0,
+        (await getCurrentSlot()) + 100,
         tokensPerSlot
       );
       await sourceFarm.setMinSnapshotWindow(1);
@@ -272,6 +264,10 @@ export function test() {
       await sleep(1000);
       await sourceFarm.takeSnapshot();
 
+      const sourceHarvestVaultBeforeInfo = await getAccount(
+        provider.connection,
+        sourceHarvest.vault
+      );
       await sourceFarm.compoundAcrossFarms(targetFarm.stakeMint, {
         targetFarm: targetFarm.id,
         sourceFarmer: await sourceFarmer.id(),
@@ -280,16 +276,18 @@ export function test() {
         targetStakeVault,
       });
 
-      sourceHarvestVaultInfo = await getAccount(
+      const sourceHarvestVaultAfterInfo = await getAccount(
         provider.connection,
         sourceHarvest.vault
       );
+      expect(sourceHarvestVaultBeforeInfo.amount).to.eq(
+        sourceHarvestVaultAfterInfo.amount
+      );
+
       const targetStakeVaultInfo = await getAccount(
         provider.connection,
         targetStakeVault
       );
-
-      expect(Number(sourceHarvestVaultInfo.amount)).to.eq(1_000);
       expect(Number(targetStakeVaultInfo.amount)).to.eq(0);
     });
 
@@ -307,48 +305,38 @@ export function test() {
         harvestMint: targetFarm.stakeMint,
       });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
-      // Airdrop fresh minted tokens to harvest.vault
-      await mintTo(
-        provider.connection,
-        payer,
-        sourceHarvest.mint,
-        sourceHarvest.vault,
-        admin,
-        1_000
-      );
-
       await sourceFarmer.airdropStakeTokens();
-
-      let sourceHarvestVaultInfo = await getAccount(
-        provider.connection,
-        sourceHarvest.vault
-      );
 
       const sourceStakeVaultInfo = await getAccount(
         provider.connection,
         sourceStakeVault
       );
 
-      expect(Number(sourceHarvestVaultInfo.amount)).to.eq(1_000);
       expect(Number(sourceStakeVaultInfo.amount)).to.eq(0);
 
       const tokensPerSlot = 10;
-      await sourceFarm.setTokensPerSlot(
+      await sourceFarm.newHarvestPeriod(
         sourceHarvest.mint,
-        undefined,
+        0,
+        (await getCurrentSlot()) + 100,
         tokensPerSlot
       );
+      const sourceHarvestVaultBeforeInfo = await getAccount(
+        provider.connection,
+        sourceHarvest.vault
+      );
+
       await sourceFarm.setMinSnapshotWindow(1);
       await sourceFarm.takeSnapshot();
 
       await sourceFarmer.startFarming(10);
       await sleep(1000);
       await sourceFarm.takeSnapshot();
-      const earningRewardsFromSlot = await provider.connection.getSlot();
+      const earningRewardsFromSlot = await getCurrentSlot();
       await sleep(1000);
       await sourceFarm.takeSnapshot();
       await sleep(1000);
@@ -356,7 +344,7 @@ export function test() {
 
       await sourceFarmer.stopFarming(10);
 
-      const earnedRewardsToSlot = await provider.connection.getSlot();
+      const earnedRewardsToSlot = await getCurrentSlot();
 
       const sourceFarmerInfo = await sourceFarmer.fetch();
 
@@ -384,7 +372,7 @@ export function test() {
         targetStakeVault,
       });
 
-      sourceHarvestVaultInfo = await getAccount(
+      const sourceHarvestVaultAfterInfo = await getAccount(
         provider.connection,
         sourceHarvest.vault
       );
@@ -393,8 +381,8 @@ export function test() {
         targetStakeVault
       );
 
-      expect(Number(sourceHarvestVaultInfo.amount)).to.eq(
-        1_000 - actualRewards
+      expect(Number(sourceHarvestVaultBeforeInfo.amount)).to.eq(
+        Number(sourceHarvestVaultAfterInfo.amount) + actualRewards
       );
       expect(Number(targetStakeVaultInfo.amount)).to.eq(actualRewards);
     });

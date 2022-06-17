@@ -1,11 +1,12 @@
 import { expect } from "chai";
 import { Farm } from "../farm";
+import { PublicKey } from "@solana/web3.js";
 import { Farmer } from "../farmer";
-import { errLogs, provider, sleep } from "../helpers";
+import { errLogs, getCurrentSlot, sleep } from "../helpers";
 
 export function test() {
   describe("update_eligible_harvest", () => {
-    let farm: Farm, farmer: Farmer;
+    let farm: Farm, farmer: Farmer, harvestMint: PublicKey;
 
     beforeEach("create farm", async () => {
       farm = await Farm.init();
@@ -13,7 +14,12 @@ export function test() {
       await farm.setMinSnapshotWindow(1);
     });
 
-    beforeEach("create farmers", async () => {
+    beforeEach("create harvest", async () => {
+      const harvest = await farm.addHarvest();
+      harvestMint = harvest.mint;
+    });
+
+    beforeEach("create farmer", async () => {
       farmer = await Farmer.init(farm);
       await farmer.airdropStakeTokens();
     });
@@ -30,9 +36,13 @@ export function test() {
 
     it("works", async () => {
       const tokensPerSlot = 10;
-      const harvest = await farm.addHarvest({ tokensPerSlot });
+      await farm.newHarvestPeriod(
+        harvestMint,
+        0,
+        (await getCurrentSlot()) + 100,
+        tokensPerSlot
+      );
 
-      await farm.setTokensPerSlot(harvest.mint, undefined, tokensPerSlot);
       await farm.takeSnapshot();
 
       await farmer.airdropStakeTokens(10);
@@ -40,7 +50,7 @@ export function test() {
       await farmer.startFarming(10);
       await sleep(1000);
       await farm.takeSnapshot();
-      const earningRewardsFromSlot = await provider.connection.getSlot();
+      const earningRewardsFromSlot = await getCurrentSlot();
 
       await sleep(1000);
       await farm.takeSnapshot();
@@ -48,7 +58,7 @@ export function test() {
       await farm.takeSnapshot();
 
       await farmer.updateEligibleHarvest();
-      const earnedRewardsToSlot = await provider.connection.getSlot();
+      const earnedRewardsToSlot = await getCurrentSlot();
 
       const farmerInfo = await farmer.fetch();
 
@@ -57,7 +67,7 @@ export function test() {
 
       const harvests = farmerInfo.harvests as any[];
       const { tokens } = harvests.find(
-        (h) => h.mint.toString() === harvest.mint.toString()
+        (h) => h.mint.toString() === harvestMint.toString()
       );
       const earnedRewardsForSlots =
         earnedRewardsToSlot - earningRewardsFromSlot;
@@ -86,7 +96,12 @@ export function test() {
       expect(Number(stakeVaultAmount)).to.eq(totalStaked);
 
       const tokensPerSlot = 100;
-      const harvest = await farm.addHarvest({ tokensPerSlot });
+      await farm.newHarvestPeriod(
+        harvestMint,
+        0,
+        (await getCurrentSlot()) + 100,
+        tokensPerSlot
+      );
 
       // take first snapshot and get its slot
       await farm.takeSnapshot();
@@ -116,7 +131,7 @@ export function test() {
 
           const harvests = farmerInfo.harvests as any[];
           const { tokens } = harvests.find(
-            (h) => h.mint.toString() === harvest.mint.toString()
+            (h) => h.mint.toString() === harvestMint.toString()
           );
           const share = farmerInfo.staked.amount.toNumber() / totalStaked;
           const totalHarvest = earnedRewardsForSlots * tokensPerSlot;

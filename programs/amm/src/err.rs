@@ -30,6 +30,8 @@ pub enum AmmError {
     CannotCompoundIfStakeMintIsNotHarvest,
     #[msg("One of the provided input arguments is invalid")]
     InvalidArg,
+    #[msg("Running harvest periods must finish before a new one can start")]
+    CannotOverwriteOpenHarvestPeriod,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {

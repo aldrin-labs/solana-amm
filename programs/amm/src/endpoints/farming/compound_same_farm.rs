@@ -81,15 +81,18 @@ pub fn handle(ctx: Context<CompoundSameFarm>) -> Result<()> {
     .ok_or_else(|| err::acc("Farm is not whitelisted"))?;
 
     let farm = accounts.farm.load()?;
+    let current_slot = Slot::current()?;
 
     accounts
         .farmer
-        .check_vested_period_and_update_harvest(&farm)?;
+        .check_vested_period_and_update_harvest(&farm, current_slot)?;
 
     // get all harvestable tokens of the farmer and add them to their vested
     // tokens
     let compound_tokens = accounts.farmer.claim_harvest(farm.stake_mint)?;
-    accounts.farmer.add_to_vested(compound_tokens)?;
+    accounts
+        .farmer
+        .add_to_vested(current_slot, compound_tokens)?;
 
     // transfer all those harvestable tokens to the stake vault
     let pda_seeds = &[

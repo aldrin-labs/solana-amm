@@ -30,7 +30,6 @@ export function test() {
           farmer: otherPda,
         })
       );
-
       expect(logs).to.contain("AccountNotInitialized");
     });
 
@@ -42,7 +41,6 @@ export function test() {
           authority: otherAuthority,
         })
       );
-
       expect(logs).to.contain("Authority does not own this farmer");
     });
 
@@ -58,7 +56,7 @@ export function test() {
       const tokensPerSlot = 10;
       await farm.setMinSnapshotWindow(1);
       const harvest = await farm.addHarvest();
-      await farm.setTokensPerSlot(harvest.mint, undefined, tokensPerSlot);
+      await farm.newHarvestPeriod(harvest.mint, 0, 1000, tokensPerSlot);
       await farm.takeSnapshot();
 
       await farmer.airdropStakeTokens(10);
@@ -68,17 +66,14 @@ export function test() {
       await farmer.stopFarming(10);
 
       const logs = await errLogs(farmer.close());
-
       expect(logs).to.contain("Claim all farmer's harvest");
     });
 
     it("fails if there're staked tokens", async () => {
       await farmer.airdropStakeTokens(100);
-
       await farmer.startFarming(100);
 
       const logs = await errLogs(farmer.close());
-
       expect(logs).to.contain("Unstake all farmer's tokens");
     });
 

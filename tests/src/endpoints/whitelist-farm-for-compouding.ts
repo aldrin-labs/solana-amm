@@ -1,5 +1,5 @@
-import { airdrop, provider, amm, errLogs } from "../helpers";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { airdrop, provider, errLogs } from "../helpers";
+import { Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import { Farm } from "../farm";
 
@@ -25,7 +25,7 @@ export function test() {
       await airdrop(fakeAdmin.publicKey);
 
       const logs = await errLogs(
-        sourceFarm.WhitelistFarmForCompounding({
+        sourceFarm.whitelistFarmForCompounding({
           targetFarm: targetFarm.id,
           admin: fakeAdmin,
         })
@@ -46,7 +46,7 @@ export function test() {
       const targetFarm = await Farm.init({ adminKeypair: targetAdmin });
 
       await expect(
-        sourceFarm.WhitelistFarmForCompounding({
+        sourceFarm.whitelistFarmForCompounding({
           skipAdminSignature: true,
           targetFarm: targetFarm.id,
         })
@@ -65,11 +65,11 @@ export function test() {
         A whitelists farm B and vice-versa", async () => {
       const targetFarm = await Farm.init({ adminKeypair: targetAdmin });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 
-      await targetFarm.WhitelistFarmForCompounding({
+      await targetFarm.whitelistFarmForCompounding({
         targetFarm: sourceFarm.id,
       });
 
@@ -91,7 +91,7 @@ export function test() {
     });
 
     it("works when source and target farm as the same", async () => {
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: sourceFarm.id,
       });
 
@@ -106,7 +106,7 @@ export function test() {
     it("works", async () => {
       const targetFarm = await Farm.init({ adminKeypair: targetAdmin });
 
-      await sourceFarm.WhitelistFarmForCompounding({
+      await sourceFarm.whitelistFarmForCompounding({
         targetFarm: targetFarm.id,
       });
 

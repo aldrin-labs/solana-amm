@@ -57,14 +57,15 @@ pub fn handle(ctx: Context<StartFarming>, stake: TokenAmount) -> Result<()> {
     }
 
     let farm = accounts.farm.load()?;
+    let current_slot = Slot::current()?;
 
     accounts
         .farmer
-        .check_vested_period_and_update_harvest(&farm)?;
+        .check_vested_period_and_update_harvest(&farm, current_slot)?;
 
     // marks the funds as vested, they won't be eligible for harvest until the
     // next snapshot
-    accounts.farmer.add_to_vested(stake)?;
+    accounts.farmer.add_to_vested(current_slot, stake)?;
     // from farmer's wallet to farm's vault
     token::transfer(accounts.as_stake_tokens_context(), stake.amount)?;
 

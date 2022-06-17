@@ -1,13 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { expect } from "chai";
-
-import {
-  payer,
-  provider,
-  errLogs,
-  sleep,
-  assertApproxCurrentSlot,
-} from "../helpers";
+import { payer, errLogs, sleep, assertApproxCurrentSlot } from "../helpers";
 import { Farm } from "../farm";
 
 export function test() {
