@@ -58,7 +58,7 @@ pub fn handle(ctx: Context<AddHarvest>) -> Result<()> {
     let mut farm = accounts.farm.load_mut()?;
 
     if farm.admin != accounts.admin.key() {
-        return Err(error!(AmmError::FarmAdminMismatch));
+        return Err(error!(FarmingError::FarmAdminMismatch));
     }
 
     farm.add_harvest(

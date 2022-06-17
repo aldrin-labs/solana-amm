@@ -50,7 +50,7 @@ pub fn handle(ctx: Context<RemoveHarvest>, harvest_mint: Pubkey) -> Result<()> {
     let mut farm = accounts.farm.load_mut()?;
 
     if farm.admin != accounts.admin.key() {
-        return Err(error!(AmmError::FarmAdminMismatch));
+        return Err(error!(FarmingError::FarmAdminMismatch));
     }
 
     farm.harvests

@@ -23,7 +23,7 @@ pub fn handle(ctx: Context<SetFarmOwner>) -> Result<()> {
     // with accounts current farm admin pub key, otherwise
     // we throw an error
     if farm.admin != accounts.admin.key() {
-        return Err(error!(AmmError::FarmAdminMismatch));
+        return Err(error!(FarmingError::FarmAdminMismatch));
     }
 
     farm.admin = accounts.new_farm_admin.key();

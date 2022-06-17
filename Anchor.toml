@@ -2,8 +2,7 @@
 seeds = false
 
 [programs.localnet]
-amm = "DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ"
-
+farming = "DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ"
 
 [registry]
 url = "https://anchor.projectserum.com"

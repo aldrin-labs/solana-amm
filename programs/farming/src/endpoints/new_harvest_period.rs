@@ -57,7 +57,7 @@ pub fn handle(
     let mut farm = accounts.farm.load_mut()?;
 
     if farm.admin != accounts.admin.key() {
-        return Err(error!(AmmError::FarmAdminMismatch));
+        return Err(error!(FarmingError::FarmAdminMismatch));
     }
 
     let scheduled_launch = farm.new_harvest_period(
@@ -159,12 +159,12 @@ fn total_tokens_emitted_per_period(
     let slots = ends_at
         .slot
         .checked_sub(starts_at.slot)
-        .ok_or(AmmError::MathOverflow)?
+        .ok_or(FarmingError::MathOverflow)?
         .checked_add(1)
-        .ok_or(AmmError::MathOverflow)?;
+        .ok_or(FarmingError::MathOverflow)?;
     let required_tokens = slots
         .checked_mul(tps.amount)
-        .ok_or(AmmError::MathOverflow)?;
+        .ok_or(FarmingError::MathOverflow)?;
     Ok(TokenAmount::new(required_tokens))
 }
 

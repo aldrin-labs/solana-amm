@@ -39,7 +39,7 @@ pub fn handle(ctx: Context<DewhitelistFarmForCompounding>) -> Result<()> {
     let source_farm = accounts.source_farm.load()?;
 
     if source_farm.admin != accounts.admin.key() {
-        return Err(error!(AmmError::FarmAdminMismatch));
+        return Err(error!(FarmingError::FarmAdminMismatch));
     }
     Ok(())
 }

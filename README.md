@@ -2,10 +2,10 @@
 - Anchor v0.24.2
 - [Code coverage][project-code-coverage]
 - [Rust docs][project-rust-docs]
-- [Changelog][project-changelog]
 
 # Farming program (Fp)
 
+- [Changelog][fp-changelog]
 - [`DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ` is dev program][fp-dev-solscan]
 
 ## Motivation
@@ -391,7 +391,7 @@ snapshot ring buffer history:
 [token-program-mint]: https://docs.rs/anchor-spl/0.24.2/anchor_spl/token/struct.Mint.html
 [project-code-coverage]: https://crypto_project.gitlab.io/defi/amm/coverage
 [project-rust-docs]: https://crypto_project.gitlab.io/defi/amm/amm
-[project-changelog]: https://crypto_project.gitlab.io/defi/amm/amm.changelog.html
+[fp-changelog]: https://crypto_project.gitlab.io/defi/amm/fp.changelog.html
 [rin-staking]: https://dex.aldrin.com/staking
 [example-staking-units]: docs/images/staking_units.png
 [snapshot-buffer]: docs/images/snapshot_buffer.png

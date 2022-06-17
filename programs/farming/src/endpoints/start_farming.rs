@@ -53,7 +53,7 @@ pub fn handle(ctx: Context<StartFarming>, stake: TokenAmount) -> Result<()> {
             "The provided stake amount needs \
             to be bigger than zero"
         );
-        return Err(error!(AmmError::InvalidArg));
+        return Err(error!(FarmingError::InvalidArg));
     }
 
     let farm = accounts.farm.load()?;

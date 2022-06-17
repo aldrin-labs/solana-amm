@@ -7,14 +7,14 @@ import {
 } from "@project-serum/anchor";
 import { PublicKey } from "@solana/web3.js";
 import NodeWallet from "@project-serum/anchor/dist/cjs/nodewallet";
-import { Amm } from "../../target/types/amm";
+import { Farming } from "../../target/types/farming";
 import { expect } from "chai";
 
 export const provider = AnchorProvider.local();
 setProvider(provider);
 export const payer = (provider.wallet as NodeWallet).payer;
 
-export const amm = workspace.Amm as Program<Amm>;
+export const farming = workspace.Farming as Program<Farming>;
 
 export async function errLogs(job: Promise<unknown>): Promise<string> {
   try {

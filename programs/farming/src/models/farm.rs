@@ -186,7 +186,7 @@ impl Farm {
                     msg!(
                     "Cannot convert harvest period history vector into array"
                 );
-                    AmmError::InvariantViolation
+                    FarmingError::InvariantViolation
                 })?;
 
             Ok(())
@@ -216,7 +216,7 @@ impl Farm {
             .harvests
             .iter_mut()
             .find(|h| h.mint == harvest_mint)
-            .ok_or(AmmError::UnknownHarvestMintPubKey)?;
+            .ok_or(FarmingError::UnknownHarvestMintPubKey)?;
 
         let (mut starts_at, ends_at) = period;
         if starts_at.slot == 0 {
@@ -226,12 +226,12 @@ impl Farm {
                 "Cannot start a new farming period in the past, \
                 use 0 to default to current slot"
             );
-            return Err(error!(AmmError::InvalidSlot));
+            return Err(error!(FarmingError::InvalidSlot));
         }
 
         if starts_at >= ends_at {
             msg!("New farming period must start before it ends");
-            return Err(error!(AmmError::InvalidSlot));
+            return Err(error!(FarmingError::InvalidSlot));
         }
 
         let latest_period = &mut harvest.periods[0];
@@ -256,7 +256,7 @@ impl Farm {
                 "Currently active harvest period ends at slot {}",
                 latest_period.ends_at.slot
             );
-            return Err(error!(AmmError::CannotOverwriteOpenHarvestPeriod));
+            return Err(error!(FarmingError::CannotOverwriteOpenHarvestPeriod));
         }
 
         // we know a priori that harvest: HarvestPeriod was at least
@@ -270,7 +270,7 @@ impl Farm {
         if is_oldest_period_initialized
             && oldest_period.ends_at.slot >= oldest_snapshot.started_at.slot
         {
-            return Err(error!(AmmError::ConfigurationUpdateLimitExceeded));
+            return Err(error!(FarmingError::ConfigurationUpdateLimitExceeded));
         }
 
         // At this step, we know that the oldest period end slot is strictly
@@ -429,7 +429,7 @@ impl Farm {
         // Assert that sufficient time as passed
         if clock.slot < last_snapshot_slot + min_snapshot_window_slots {
             return Err(error!(
-                AmmError::InsufficientSlotTimeSinceLastSnapshot
+                FarmingError::InsufficientSlotTimeSinceLastSnapshot
             ));
         }
 
