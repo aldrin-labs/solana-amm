@@ -10,7 +10,7 @@ import {
   payer,
   provider,
   sleep,
-} from "../helpers";
+} from "../../helpers";
 
 export function test() {
   describe("start_farming", () => {

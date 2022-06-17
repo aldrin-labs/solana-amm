@@ -28,7 +28,7 @@ pub struct Farmer {
     /// To know whether these tokens are already eligible for harvest, we store
     /// the slot at which were they deposited. This way we know upon the next
     /// action this slot is less than the last snapshot's end slot. See the
-    /// [`Farmer::refresh`] method.
+    /// [`Farmer::check_vested_period_and_update_harvest`] method.
     ///
     /// # Important
     /// This value is not changed after moving `vested` to
@@ -47,7 +47,7 @@ pub struct Farmer {
     /// the slot prior to the `calculate_next_harvest_from` slot.
     ///
     /// These values are incremented by
-    /// [`crate::endpoints::farming::calculate_available_harvest`]. Its main
+    /// [`crate::endpoints::update_eligible_harvest`]. Its main
     /// purpose is to allow us to claim harvest by 3rd party bots on behalf of
     /// the farmer. The bots increment these integers and when the farmer is
     /// ready to claim their harvest, we perform the actual transfer with token

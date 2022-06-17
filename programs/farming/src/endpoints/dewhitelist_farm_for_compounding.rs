@@ -1,9 +1,10 @@
 //! This endpoint can be called by the admin of a source farm in order to
 //! remove a target farm from the source farm's auto-compounding whitelist.
 //! Note that this endpoint should only be called on target_farms that have
-//! already been whitelisted via endpoint [`whitelist_farm_for_compounding`].
-//! The endpoint will proceed with the closing of the pda account that signals
-//! the whitelisting of the target farm by the source farm.
+//! already been whitelisted via endpoint
+//! [`crate::endpoints::whitelist_farm_for_compounding`]. The endpoint will
+//! proceed with the closing of the pda account that signals the whitelisting of
+//! the target farm by the source farm.
 
 use crate::prelude::*;
 

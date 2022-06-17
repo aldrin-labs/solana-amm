@@ -44,6 +44,10 @@ program:
       - target/deploy/farming.so
       - target/idl/farming.json
       - target/types/farming.ts
+
+      - target/deploy/amm.so
+      - target/idl/amm.json
+      - target/types/amm.ts
   before_script:
     # Add SSH key which is stored in gitlab variables and allows us to access
     # dependency crates in different repos.
@@ -100,6 +104,10 @@ program:
       pandoc -t html --standalone
       --metadata title="Farming program"
       -o public/fp.changelog.html
+    - cat programs/amm/CHANGELOG.md |
+      pandoc -t html --standalone
+      --metadata title="AMM program"
+      -o public/amm.changelog.html
 
 # This job publishes pages to
 # https://crypto_project.gitlab.io/defi/amm

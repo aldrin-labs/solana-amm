@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { Farm } from "../farm";
 import { PublicKey } from "@solana/web3.js";
 import { Farmer } from "../farmer";
-import { errLogs, getCurrentSlot, sleep } from "../helpers";
+import { errLogs, getCurrentSlot, sleep } from "../../helpers";
 
 export function test() {
   describe("update_eligible_harvest", () => {

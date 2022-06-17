@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
 import { getAccount, getMint } from "@solana/spl-token";
-import { errLogs, provider, sleep, getCurrentSlot } from "../helpers";
+import { errLogs, provider, sleep, getCurrentSlot } from "../../helpers";
 
 export function test() {
   describe("stop_farming", () => {

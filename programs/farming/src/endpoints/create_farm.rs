@@ -1,6 +1,6 @@
 //! Initializes new [`Farm`] account. After this call, the admin must
 //! add [`Harvest`] for each reward mint they want to distribute using
-//! the [`crate::endpoints::farming::add_harvest`] endpoint.
+//! the [`crate::endpoints::add_harvest`] endpoint.
 
 use crate::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};

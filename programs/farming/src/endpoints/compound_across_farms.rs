@@ -5,9 +5,9 @@
 //! The eligible harvest is transfered from the harvest vault of the source
 //! farm to the stake vault of the target farm. In order for this to work,
 //! the source farm admin needs to whitelist the target farm via the endpoint
-//! [`whitelist_farm_for_compounding`]. For the same logic but operating only
-//! in single farm (harvest and stake vault both under the same farm),
-//! see endpoint [`compound_same_farm`].
+//! [`crate::endpoints::whitelist_farm_for_compounding`]. For the same logic but
+//! operating only in single farm (harvest and stake vault both under the same
+//! farm), see endpoint [`crate::endpoints::compound_same_farm`].
 
 use crate::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};

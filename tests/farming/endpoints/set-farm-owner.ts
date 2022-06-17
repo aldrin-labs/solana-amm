@@ -1,7 +1,7 @@
 import { Keypair } from "@solana/web3.js";
 import { Farm } from "../farm";
 import { expect } from "chai";
-import { airdrop, errLogs } from "../helpers";
+import { airdrop, errLogs } from "../../helpers";
 
 export function test() {
   describe("set_farm_owner", () => {

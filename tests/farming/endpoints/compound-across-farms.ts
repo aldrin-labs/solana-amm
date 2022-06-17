@@ -6,7 +6,7 @@ import {
   errLogs,
   sleep,
   getCurrentSlot,
-} from "../helpers";
+} from "../../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { createMint, getAccount } from "@solana/spl-token";
 import { expect } from "chai";

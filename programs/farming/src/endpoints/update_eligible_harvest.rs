@@ -4,8 +4,8 @@
 //! history.
 //!
 //! Users update their eligible harvest by interacting with the program, eg. by
-//! calling [`crate::endpoints::farming::start_farming`] or
-//! [`crate::endpoints::farming::stop_farming`]. However, if a user becomes
+//! calling [`crate::endpoints::start_farming`] or
+//! [`crate::endpoints::stop_farming`]. However, if a user becomes
 //! inactive, bots must invoke this endpoint on their behalf.
 
 use crate::prelude::*;

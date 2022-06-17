@@ -1,12 +1,12 @@
 [package]
-name = "farming"
-version = "1.0.0"
-description = "Stake tokens and collect harvest"
+name = "amm"
+version = "0.1.0"
+description = "Deposit liquidity to earn fees and swap between mints"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "farming"
+name = "amm"
 
 [features]
 no-entrypoint = []

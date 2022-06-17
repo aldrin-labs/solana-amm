@@ -6,7 +6,7 @@ import {
   assertApproxCurrentSlot,
   getCurrentSlot,
   errLogs,
-} from "../helpers";
+} from "../../helpers";
 
 export function test() {
   describe("new_harvest_period", () => {

@@ -3,7 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
-import { errLogs, getCurrentSlot, provider, sleep } from "../helpers";
+import { errLogs, getCurrentSlot, provider, sleep } from "../../helpers";
 
 export function test() {
   describe("claim_eligible_harvest", () => {
