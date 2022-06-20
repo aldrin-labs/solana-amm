@@ -275,17 +275,12 @@ export class Farm {
   public async removeHarvest(
     mint: PublicKey,
     input: Partial<RemoveHarvestArgs> = {}
-  ): Promise<PublicKey> {
+  ): Promise<void> {
     const pda = input.pda ?? (await this.signerPda());
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
     const harvestVault = input.harvestVault ?? (await this.harvestVault(mint));
-
-    const adminHarvestWallet =
-      input.adminHarvestWallet ??
-      (await (() =>
-        createAccount(provider.connection, payer, mint, admin.publicKey))());
 
     const signers = [];
     if (!skipAdminSignature) {
@@ -296,15 +291,12 @@ export class Farm {
       .removeHarvest(mint)
       .accounts({
         admin: admin.publicKey,
-        adminHarvestWallet,
         farm: this.id,
         farmSignerPda: pda,
         harvestVault,
       })
       .signers(signers)
       .rpc();
-
-    return adminHarvestWallet;
   }
 
   public async takeSnapshot(input: Partial<TakeSnapshotArgs> = {}) {
