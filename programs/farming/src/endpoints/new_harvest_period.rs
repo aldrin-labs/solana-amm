@@ -5,6 +5,8 @@
 //! The admin can default to current slot by using `starts_at = 0`.
 //!
 //! Both `starts_at` and `ends_at` are inclusive.
+//!
+//! Admin provides period length in slots.
 
 use crate::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};
@@ -49,8 +51,8 @@ pub struct NewHarvestPeriod<'info> {
 pub fn handle(
     ctx: Context<NewHarvestPeriod>,
     harvest_mint: Pubkey,
-    starts_at: Slot,
-    ends_at: Slot,
+    mut starts_at: Slot,
+    period_length_in_slots: u64,
     tps: TokenAmount,
 ) -> Result<()> {
     let accounts = ctx.accounts;
@@ -60,8 +62,36 @@ pub fn handle(
         return Err(error!(FarmingError::FarmAdminMismatch));
     }
 
+    if period_length_in_slots == 0 {
+        msg!("Cannot create a harvest period with 0 length");
+        return Err(error!(FarmingError::HarvestPeriodMustBeAtLeastOneSlot));
+    }
+
+    let current_slot = Slot::current()?;
+
+    if starts_at.slot == 0 {
+        starts_at = current_slot;
+    } else if starts_at < current_slot {
+        msg!(
+            "Cannot start a new farming period in the past, \
+            use 0 to default to current slot"
+        );
+        return Err(error!(
+            FarmingError::HarvestPeriodMustStartAtOrAfterCurrentSlot
+        ));
+    }
+
+    let ends_at = Slot::new(
+        starts_at
+            .slot
+            .checked_add(period_length_in_slots)
+            .ok_or(FarmingError::MathOverflow)?
+            // because it's inclusive of the start_at slot
+            - 1,
+    );
+
     let scheduled_launch = farm.new_harvest_period(
-        Slot::current()?,
+        current_slot,
         harvest_mint,
         (starts_at, ends_at),
         tps,

@@ -13,12 +13,12 @@ pub enum FarmingError {
     /// program logic works as intended.
     #[msg("There's a bug in the program, see logs for more info")]
     InvariantViolation,
+    #[msg("One of the provided input arguments is invalid")]
+    InvalidArg,
     #[msg("Farm admin does not match the provided signer")]
     FarmAdminMismatch,
     #[msg("Insufficient slot time has passed since last snapshot was taken")]
     InsufficientSlotTimeSinceLastSnapshot,
-    #[msg("Invalid slot as time has already passed since given slot")]
-    InvalidSlot,
     #[msg("None of existing harvest mints  possedes the public key")]
     UnknownHarvestMintPubKey,
     #[msg("The limit of configuration updates has been already exceeded within the snapshot history")]
@@ -28,14 +28,24 @@ pub enum FarmingError {
         for autocompouding to work"
     )]
     CannotCompoundIfStakeMintIsNotHarvest,
-    #[msg("One of the provided input arguments is invalid")]
-    InvalidArg,
     #[msg("Running harvest periods must finish before a new one can start")]
     CannotOverwriteOpenHarvestPeriod,
+    #[msg("Harvest period must start before it ends")]
+    HarvestPeriodCannotHaveNegativeLength,
+    #[msg("Cannot start a new harvest period in the past")]
+    HarvestPeriodMustStartAtOrAfterCurrentSlot,
+    #[msg("Cannot have a period that lasts 0 slots")]
+    HarvestPeriodMustBeAtLeastOneSlot,
 }
 
 pub fn acc(msg: impl Display) -> FarmingError {
     msg!("[InvalidAccountInput] {}", msg);
 
     FarmingError::InvalidAccountInput
+}
+
+pub fn arg(msg: impl Display) -> FarmingError {
+    msg!("[InvalidArg] {}", msg);
+
+    FarmingError::InvalidArg
 }

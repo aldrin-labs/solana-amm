@@ -35,13 +35,8 @@ export function test() {
     });
 
     it("works", async () => {
-      const tokensPerSlot = 10;
-      await farm.newHarvestPeriod(
-        harvestMint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      const tps = 10;
+      await farm.newHarvestPeriod(harvestMint, 0, 100, tps);
 
       await farm.takeSnapshot();
 
@@ -72,10 +67,10 @@ export function test() {
       const earnedRewardsForSlots =
         earnedRewardsToSlot - earningRewardsFromSlot;
       expect(tokens.amount.toNumber()).to.be.approximately(
-        earnedRewardsForSlots * tokensPerSlot,
+        earnedRewardsForSlots * tps,
         // there's a possibility that we will get different slot in our call
         // than the one that was active during the start farming
-        tokensPerSlot
+        tps
       );
     });
 
@@ -95,13 +90,8 @@ export function test() {
       const { amount: stakeVaultAmount } = await farm.stakeVaultInfo();
       expect(Number(stakeVaultAmount)).to.eq(totalStaked);
 
-      const tokensPerSlot = 100;
-      await farm.newHarvestPeriod(
-        harvestMint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      const tps = 100;
+      await farm.newHarvestPeriod(harvestMint, 0, 100, tps);
 
       // take first snapshot and get its slot
       await farm.takeSnapshot();
@@ -134,7 +124,7 @@ export function test() {
             (h) => h.mint.toString() === harvestMint.toString()
           );
           const share = farmerInfo.staked.amount.toNumber() / totalStaked;
-          const totalHarvest = earnedRewardsForSlots * tokensPerSlot;
+          const totalHarvest = earnedRewardsForSlots * tps;
 
           expect(tokens.amount.toNumber()).to.eq(share * totalHarvest);
         })

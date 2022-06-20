@@ -462,7 +462,7 @@ export class Farm {
   public async newHarvestPeriod(
     harvestMint: PublicKey,
     fromSlot: number,
-    untilSlot: number,
+    periodLength: number,
     tokensPerSlot: number,
     input: Partial<NewHarvestPeriodArgs> = {}
   ): Promise<void> {
@@ -479,7 +479,7 @@ export class Farm {
       await this.airdropHarvestTokens(
         harvestMint,
         harvestWallet,
-        (untilSlot - fromSlot + 1) * tokensPerSlot
+        periodLength * tokensPerSlot
       );
     }
 
@@ -492,7 +492,7 @@ export class Farm {
       .newHarvestPeriod(
         harvestMint,
         { slot: new BN(fromSlot) },
-        { slot: new BN(untilSlot) },
+        new BN(periodLength),
         { amount: new BN(tokensPerSlot) }
       )
       .accounts({

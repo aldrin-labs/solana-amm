@@ -217,27 +217,43 @@ impl Farm {
             .find(|h| h.mint == harvest_mint)
             .ok_or(FarmingError::UnknownHarvestMintPubKey)?;
 
-        let (mut starts_at, ends_at) = period;
-        if starts_at.slot == 0 {
-            starts_at = current_slot;
-        } else if starts_at < current_slot {
-            msg!(
-                "Cannot start a new farming period in the past, \
-                use 0 to default to current slot"
-            );
-            return Err(error!(FarmingError::InvalidSlot));
-        }
+        let (starts_at, ends_at) = period;
 
         if starts_at >= ends_at {
-            msg!("New farming period must start before it ends");
-            return Err(error!(FarmingError::InvalidSlot));
+            msg!("New harvest period must start before it ends");
+            return Err(error!(
+                FarmingError::HarvestPeriodCannotHaveNegativeLength
+            ));
         }
 
-        let latest_period = &mut harvest.periods[0];
+        // the admin can schedule a new launch as long as it starts after the
+        // following period ends
+        //
+        // latest started != currently active, it might have finished already
+        let latest_started_period = harvest
+            .periods
+            .iter()
+            .find(|p| p.starts_at <= current_slot)
+            .ok_or_else(|| {
+                // currently we don't allow all periods have `started_at` in
+                // future
+                msg!("All harvest periods cannot be scheduled");
+                FarmingError::InvariantViolation
+            })?;
+        if latest_started_period.ends_at >= starts_at {
+            msg!(
+                "Latest started harvest period ends at slot {}, \
+                new period must start later than that",
+                latest_started_period.ends_at.slot
+            );
+            return Err(error!(FarmingError::CannotOverwriteOpenHarvestPeriod));
+        }
+
         // if the latest period is at a future slot, then we update its
         // value
         //
-        // this enables scheduled launches
+        // this enables editing of scheduled launches
+        let latest_period = &mut harvest.periods[0];
         if latest_period.starts_at > current_slot {
             let previous_latest_period = *latest_period;
             *latest_period = HarvestPeriod {
@@ -246,16 +262,6 @@ impl Farm {
                 ends_at,
             };
             return Ok(Some(previous_latest_period));
-        }
-
-        if latest_period.ends_at.slot != 0
-            && latest_period.ends_at >= current_slot
-        {
-            msg!(
-                "Currently active harvest period ends at slot {}",
-                latest_period.ends_at.slot
-            );
-            return Err(error!(FarmingError::CannotOverwriteOpenHarvestPeriod));
         }
 
         // we know a priori that harvest: HarvestPeriod was at least
@@ -269,6 +275,7 @@ impl Farm {
         if is_oldest_period_initialized
             && oldest_period.ends_at.slot >= oldest_snapshot.started_at.slot
         {
+            msg!("Oldest period is still within the ring buffer history");
             return Err(error!(FarmingError::ConfigurationUpdateLimitExceeded));
         }
 
@@ -581,6 +588,16 @@ mod tests {
     use crate::prelude::utils;
     use std::iter;
 
+    impl Farm {
+        fn get_harvest(&self, mint: Pubkey) -> Harvest {
+            self.harvests
+                .iter()
+                .find(|h| h.mint.eq(&mint))
+                .copied()
+                .expect("farm has no harvest of such mint")
+        }
+    }
+
     #[test]
     fn it_matches_harvest_tokens_per_slot_with_const() {
         let harvest = Harvest::default();
@@ -853,7 +870,26 @@ mod tests {
     }
 
     #[test]
-    fn it_default_beginning_of_period_to_current_slot() -> Result<()> {
+    fn it_errs_if_harvest_period_starts_before_it_ends() -> Result<()> {
+        let harvest_mint = Pubkey::new_unique();
+        let mut farm = Farm::default();
+
+        farm.add_harvest(harvest_mint, Pubkey::new_unique())?;
+        assert!(farm
+            .new_harvest_period(
+                Slot::new(5),
+                harvest_mint,
+                (Slot::new(30), Slot::new(25)),
+                TokenAmount::new(20),
+            )
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_updates_scheduled_launch_during_active_harvest_period() -> Result<()>
+    {
         let harvest_mint = Pubkey::new_unique();
         let mut farm = Farm::default();
 
@@ -861,17 +897,69 @@ mod tests {
         farm.new_harvest_period(
             Slot::new(5),
             harvest_mint,
-            (Slot::new(0), Slot::new(25)),
+            (Slot::new(5), Slot::new(25)),
             TokenAmount::new(20),
         )?;
+        farm.new_harvest_period(
+            Slot::new(10),
+            harvest_mint,
+            (Slot::new(30), Slot::new(50)),
+            TokenAmount::new(20),
+        )?;
+        farm.new_harvest_period(
+            Slot::new(10),
+            harvest_mint,
+            (Slot::new(40), Slot::new(50)),
+            TokenAmount::new(20),
+        )?;
+
         assert_eq!(
-            farm.harvests[0].periods[0],
+            farm.get_harvest(harvest_mint).periods[0],
+            HarvestPeriod {
+                starts_at: Slot::new(40),
+                ends_at: Slot::new(50),
+                tps: TokenAmount::new(20),
+            }
+        );
+        assert_eq!(
+            farm.get_harvest(harvest_mint).periods[1],
             HarvestPeriod {
                 starts_at: Slot::new(5),
                 ends_at: Slot::new(25),
-                tps: TokenAmount::new(20)
+                tps: TokenAmount::new(20),
             }
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_if_latest_started_period_ends_after_scheduled_launch(
+    ) -> Result<()> {
+        let harvest_mint = Pubkey::new_unique();
+        let mut farm = Farm::default();
+
+        farm.add_harvest(harvest_mint, Pubkey::new_unique())?;
+        farm.new_harvest_period(
+            Slot::new(5),
+            harvest_mint,
+            (Slot::new(5), Slot::new(25)),
+            TokenAmount::new(20),
+        )?;
+        farm.new_harvest_period(
+            Slot::new(10),
+            harvest_mint,
+            (Slot::new(30), Slot::new(50)),
+            TokenAmount::new(20),
+        )?;
+        assert!(farm
+            .new_harvest_period(
+                Slot::new(10),
+                harvest_mint,
+                (Slot::new(20), Slot::new(50)),
+                TokenAmount::new(20),
+            )
+            .is_err());
 
         Ok(())
     }
@@ -919,24 +1007,6 @@ mod tests {
             );
         }
 
-        Ok(())
-    }
-
-    #[test]
-    fn it_errs_new_harvest_period_if_period_is_in_the_past() -> Result<()> {
-        let mut farm = Farm::default();
-
-        let harvest_mint = farm.harvests[0].mint;
-
-        // call new_harvest_period when period is before current_slot
-        assert!(farm
-            .new_harvest_period(
-                Slot::new(35),
-                harvest_mint,
-                (Slot::new(15), Slot::new(25)),
-                TokenAmount::new(20),
-            )
-            .is_err());
         Ok(())
     }
 

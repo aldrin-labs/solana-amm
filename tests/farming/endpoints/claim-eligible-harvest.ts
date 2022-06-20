@@ -3,7 +3,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAccount } from "@solana/spl-token";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
-import { errLogs, getCurrentSlot, provider, sleep } from "../../helpers";
+import { errLogs, provider, sleep } from "../../helpers";
 
 export function test() {
   describe("claim_eligible_harvest", () => {
@@ -29,20 +29,10 @@ export function test() {
 
     beforeEach("create harvests", async () => {
       harvest1 = await farm.addHarvest();
-      await farm.newHarvestPeriod(
-        harvest1.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot1
-      );
+      await farm.newHarvestPeriod(harvest1.mint, 0, 100, tokensPerSlot1);
 
       harvest2 = await farm.addHarvest();
-      await farm.newHarvestPeriod(
-        harvest2.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot2
-      );
+      await farm.newHarvestPeriod(harvest2.mint, 0, 100, tokensPerSlot2);
 
       farmerVaultWalletPairs = [
         [harvest1.vault, await farmer.harvestWalletPubkey(harvest1.mint)],
@@ -72,12 +62,7 @@ export function test() {
       const harvest = await farm.addHarvest({
         harvestMint: farm.stakeMint,
       });
-      await farm.newHarvestPeriod(
-        harvest.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        100
-      );
+      await farm.newHarvestPeriod(harvest.mint, 0, 100, 100);
 
       await farmer.startFarming(10);
       await sleep(1000);

@@ -104,12 +104,7 @@ export function test() {
 
       const tokensPerSlot = 10;
       await farm.setMinSnapshotWindow(1);
-      await farm.newHarvestPeriod(
-        harvestMint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      await farm.newHarvestPeriod(harvestMint, 0, 100, tokensPerSlot);
       await farm.takeSnapshot();
 
       await farmer.startFarming(10);

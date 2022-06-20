@@ -44,14 +44,14 @@ pub mod farming {
         ctx: Context<NewHarvestPeriod>,
         harvest_mint: Pubkey,
         starts_at: Slot,
-        ends_at: Slot,
+        period_length_in_slots: u64,
         tokens_per_slot: TokenAmount,
     ) -> Result<()> {
         endpoints::new_harvest_period::handle(
             ctx,
             harvest_mint,
             starts_at,
-            ends_at,
+            period_length_in_slots,
             tokens_per_slot,
         )
     }
