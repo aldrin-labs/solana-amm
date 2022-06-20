@@ -115,13 +115,13 @@ down to the farmer's share of it. See [eq. (1)](#equations).
 The configuration value `ρ` is stored on `Farm`. An admin might want to
 distribute multiple harvest mints. Eg. we may distribute `RIN` and `SOL` for
 `USDC/ETH` pool farming. `Farm` must therefore have an array property
-`harvests` which is limited to `Ψ` entries. An entry in `harvests` represents 
-a single harvest mint. To enhance the admin’s control over the farm, for each 
-given harvest mint, the program allows the admin to set up finite 
-non-overlapping harvest periods, up to a limit of 10, where each period has 
-its own `ρ`. In relation to the limit `Ψ` of harvests mints, we opt for a 
-value based on a judgement call with the tokenomics team. In the old program, 
-this value  was 10. While a design with unlimited number of harvest mints would
+`harvests` which is limited to `Ψ` entries. An entry in `harvests` represents
+a single harvest mint. To enhance the admin’s control over the farm, for each
+given harvest mint, the program allows the admin to set up finite
+non-overlapping harvest periods, up to a limit of 10, where each period has
+its own `ρ`. In relation to the limit `Ψ` of harvests mints, we opt for a
+value based on a judgement call with the tokenomics team. In the old program,
+this value was 10. While a design with unlimited number of harvest mints would
 be possible, it would require many accounts and out goal is to optimize for
 transaction size.
 
@@ -136,14 +136,13 @@ other just after a change in `ρ`.
 
 </details>
 
-For each harvest mint in a given farm, we store on `Farm` the farming periods, 
-each with its own `ρ`. Whenever the admin wants to change `p` he/she will have 
+For each harvest mint in a given farm, we store on `Farm` the farming periods,
+each with its own `ρ`. Whenever the admin wants to change `p` he/she will have
 to create a new farming period.
 
-
 These changes are stored in a matrix, because there are
-different `ρ` values for different harvest mints, for different periods of 
-time. Eg. going with the example above, `RIN` might be emitted at different 
+different `ρ` values for different harvest mints, for different periods of
+time. Eg. going with the example above, `RIN` might be emitted at different
 rate to `SOL`, they both have different `ρ`. An example of this matrix:
 
 ```
@@ -153,11 +152,11 @@ RIN | value 12; slot 31; slot 50 | value 80; slot 30; slot 10 | ...
 ...
 ```
 
-In each period, represented by element of the matrix in a given row, the 
-starting point corresponds to the first slot and the ending point corresponds 
+In each period, represented by element of the matrix in a given row, the
+starting point corresponds to the first slot and the ending point corresponds
 to the second slot in the tupple.
-We order each row in the matrix in descending order of periods. Ie. when an 
-admin changes adds a new period, we shift the array to right and insert the new 
+We order each row in the matrix in descending order of periods. Ie. when an
+admin changes adds a new period, we shift the array to right and insert the new
 value to index 0.
 The number of changes to this value is limited by the length of a row in the
 matrix. This is a hard coded value in the code base.
@@ -182,8 +181,8 @@ reason through following scenario:
   0.25. But then they withdraw this liquidity. Now there's only $1.5m in the
   pool.
 - They redeem the second deposit, 500k/1.5m = 1/3. If our algorithm
-  distribution is based on immediate `v`, they'd withdraw 10k \* 1/3 ~= 3333. So
-  even though their deposit should have been eligible for 5k, they ended up
+  distribution is based on immediate `v`, they'd withdraw 10k \* 1/3 ~= 3333.
+  So even though their deposit should have been eligible for 5k, they ended up
   with ~5.833k.
 
 </details>
@@ -216,15 +215,15 @@ Admin wants to change `ρ`, but to calculate harvest for users we must remember
 
 </details>
 
-The history of changes to `ρ` is limited by the limited amount of harvest 
-periods. We store the periods, and consequently `p`, in a queue from which we 
+The history of changes to `ρ` is limited by the limited amount of harvest
+periods. We store the periods, and consequently `p`, in a queue from which we
 pop oldest period. With each change we remember when did the admin trigger it.
 The harvests periods do not have to match the snapshots at their start nor at
-their end. The eligible harvest in a given snapshot can be processes by the 
-program even if there are multiple harvest periods within it, with distinct 
+their end. The eligible harvest in a given snapshot can be processes by the
+program even if there are multiple harvest periods within it, with distinct
 `p` values.
 
-Whenever we encouter ourselves in a harvesting period, the `p` of such period 
+Whenever we encouter ourselves in a harvesting period, the `p` of such period
 cannot be altered, only the `p` of harvest periods which have not yet started.
 
 To summarize, a `Farm` account contains data about:
@@ -239,7 +238,7 @@ To summarize, a `Farm` account contains data about:
 
 - a _snapshot ring buffer_;
 
-- an array of _harvests_. For each harvest we store the harvest _periods_, each 
+- an array of _harvests_. For each harvest we store the harvest _periods_, each
   with its own `ρ`, the _harvest mint_ and a
   _harvest vault_ from which the harvest tokens are transferred to farmers.
 
@@ -266,7 +265,7 @@ The endpoint increments _available harvest_ token counter on `Farmer`. Should
 for some reason automation fail for weeks on end, and the user wouldn't perform
 this operation manually either, then we need to have an edge-case condition:
 burn all harvest until oldest buffer entry. Farmers won't have to re-stake
-ever, farming can run ad infinitum, however farmers will only accumulate 
+ever, farming can run ad infinitum, however farmers will only accumulate
 harvest throughout the timespan of available harvest periods.
 
 <details>
@@ -352,7 +351,90 @@ To summarize, a `Farmer` account contains data about:
   the associated integer, _available harvest_ amount, apply. The length of this
   array is given by `Ψ` mentioned above.
 
+### Compounding
+
+We want to automate claiming harvest and re-staking it for the farmers. For
+example, stakers in the `RIN` farm (`RIN` stake mint, `RIN` reward mint)
+shouldn't have to revisit the UI to claim and stake again. Or stakers in the
+`USDC/SOL` farm who earn `RIN` harvest should be able to get their harvest
+automatically staked in the `RIN` farm. The former is called "compounding in
+the same farm", the latter "compounding across farms." There are endpoints for
+both actions. These endpoints are permission-less. This enables our automation
+to periodically execute them.
+
+<details>
+<summary markdown="span">
+[PROBLEM no.7]
+</summary>
+
+Anyone can create a new farm with the relevant staking mint and set up their
+own automation which would funnel funds from all farms into their own.
+
+</details>
+
+The admin of a farm must whitelist the pubkey of each farm for which the
+compounding should be enabled. This is done by using endpoint
+**`whitelist_farm_for_compounding`** which creates a new PDA account. The seed
+of this PDA is the source farm's pubkey and the target's farm pubkey. For
+compounding in the same farm, the two pubkeys are the same. The compounding
+endpoints then assert the existence of this account before proceeding.
+
 ### Endpoints
+
+A pubkey becomes an admin upon calling **`create_farm`** endpoint. In this
+endpoint, the admin defines what is the mint of the tokens which the farmers
+will stake.
+
+The admin can then add new mints which will be released to the farmers as
+harvest with **`add_harvest`** endpoint. In this endpoint, the admin defines
+the mint.
+
+To start farming a particular harvest mint, the admin calls
+**`new_harvest_period`** endpoint. This endpoint takes as an input the harvest
+mint, the slot from which the harvest will be eligible for claiming, how many
+slots does the period last and the emission rate `ρ`. If the start at slot is
+zero, the program will use the current slot as the beginning of the harvest
+period. There can be at most one period open at a time. However, the admin can
+schedule one period in future. When the admin calls this endpoint, they must
+also provide their harvest token wallet. We calculate the total amount of
+harvest tokens that will be released to the farmers in this period with
+`period length * ρ` and transfer this amount to the harvest vault.
+
+There is a limit on how many harvest mints can be added to the farm. The admin
+can call **`remove_harvest`** endpoint to remove a harvest mint if the harvest
+vault is empty. This implies that all users have claimed their harvest and they
+won't lose out.
+
+The admin can transfer ownership of a farm with **`set_farm_owner`**.
+
+Periodically, the permission-less endpoint **`take_snapshot`** must be called
+to record history of the farm's stake vault.
+
+---
+
+A pubkey becomes a farmer upon calling the **`create_farmer`** endpoint. This
+creates `Farmer` account which is a PDA with the farm's pubkey and user's
+pubkey as a seed.
+
+To stake tokens, the farmer calls **`start_farming`** endpoint. This endpoint
+takes as an input the amount of tokens to stake. The tokens undergo a vesting
+period which ends when a new snapshot is taken.
+
+To withdraw their staked tokens, the farmer calls **`stop_farming`** endpoint.
+This endpoint takes as an input the amount of tokens to withdraw. The tokens
+are transferred to the farmer's wallet.
+
+To update farmer's harvest, the permission-less endpoint
+**`update_eligible_harvest`** can be called by anyone. When called, the history
+of the farm is used to calculate eligible harvest.
+
+To transfer the accrued harvest to date to farmer's wallet, they must call
+**`claim_eligible_harvest`**. This endpoint has a more complex API: it takes a
+list of remaining accounts where each pair is the harvest vault from which to
+transfer, and the wallet into which to transfer.
+
+If the farmer wants to stop their interaction with the farm and reclaim their
+tokens, then can call **`close_farmer`** endpoint.
 
 # Equations
 

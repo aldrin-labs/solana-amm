@@ -315,6 +315,8 @@ impl Farmer {
 ///
 /// This method mutates the `farmer_harvests` map and _adds_ the harvest
 /// eligible in the period to the amounts already stored in the map.
+///
+/// ref. eq. (1), ref. eq. (2)
 fn eligible_harvest_until<'a>(
     farm_harvests: &BTreeMap<Pubkey, &Harvest>,
     snapshots: impl Iterator<Item = &'a Snapshot>,
