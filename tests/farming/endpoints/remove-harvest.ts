@@ -1,6 +1,6 @@
 import { airdrop, errLogs, payer, provider } from "../../helpers";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { createAccount, getAccount, mintTo } from "@solana/spl-token";
+import { getAccount, mintTo } from "@solana/spl-token";
 import { expect } from "chai";
 import { Farm } from "../farm";
 
@@ -60,28 +60,10 @@ export function test() {
       const logs = await errLogs(
         farm.removeHarvest(Keypair.generate().publicKey)
       );
-      expect(logs).to.contain("Invalid Mint");
+      expect(logs).to.contain("AccountNotInitialized");
     });
 
-    it("fails if admin harvest wallet mint mismatches harvest mint", async () => {
-      const stakeWallet = await createAccount(
-        provider.connection,
-        payer,
-        farm.stakeMint,
-        admin.publicKey
-      );
-
-      const logs = await errLogs(
-        farm.removeHarvest(harvest.mint, {
-          adminHarvestWallet: stakeWallet,
-        })
-      );
-      expect(logs).to.contain("Account not associated with this Mint");
-    });
-
-    it("works", async () => {
-      const farmInfoBefore = await farm.fetch();
-
+    it("fails if there are tokens in the vault", async () => {
       const { mint, vault } = await farm.addHarvest();
 
       const mintToHarvestVaultAmount = 1_000;
@@ -94,16 +76,21 @@ export function test() {
         mintToHarvestVaultAmount
       );
 
-      const adminHarvestWallet = await farm.removeHarvest(mint);
+      const logs = await errLogs(farm.removeHarvest(mint));
+
+      expect(logs).to.contain(
+        "Cannot remove harvest which users haven't yet claimed"
+      );
+    });
+
+    it("works", async () => {
+      const farmInfoBefore = await farm.fetch();
+
+      const { mint, vault } = await farm.addHarvest();
+      await farm.removeHarvest(mint);
 
       const farmInfo = await farm.fetch();
       expect(farmInfoBefore).to.deep.eq(farmInfo);
-
-      const { amount } = await getAccount(
-        provider.connection,
-        adminHarvestWallet
-      );
-      expect(Number(amount)).to.eq(mintToHarvestVaultAmount);
 
       await expect(getAccount(provider.connection, vault)).to.be.rejected;
     });

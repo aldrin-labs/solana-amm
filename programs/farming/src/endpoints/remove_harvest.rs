@@ -1,5 +1,8 @@
-//! Removes an existing harvest mint. All farmers who haven't claimed their
-//! harvest for this mint yet lose the ability to do so from hereon.
+//! Removes an existing harvest mint.
+//!
+//! Since we always know in advance how many tokens should be deposited for a
+//! farming period, we can assert that once the harvest vault is empty, all
+//! users claimed their harvest
 //!
 //! When a farmer calculates their harvest after this instruction finishes, we
 //! remove the harvest mint from the [`Farmer.harvests`] array.
@@ -15,9 +18,6 @@ pub struct RemoveHarvest<'info> {
     /// THe ownership over the farm is checked in the [`handle`] function.
     #[account(mut)]
     pub admin: Signer<'info>,
-    /// CHECK: UNSAFE_CODES.md#token
-    #[account(mut)]
-    pub admin_harvest_wallet: AccountInfo<'info>,
     /// # Important
     /// We must check all constraints in the [`handle`] body because farm needs
     /// to be loaded first.
@@ -31,6 +31,9 @@ pub struct RemoveHarvest<'info> {
     pub farm_signer_pda: AccountInfo<'info>,
     #[account(
         mut,
+        // see the module docs
+        constraint = harvest_vault.amount == 0
+            @ err::acc("Cannot remove harvest which users haven't yet claimed"),
         seeds = [
             Harvest::VAULT_PREFIX,
             farm.key().as_ref(),
@@ -66,19 +69,6 @@ pub fn handle(ctx: Context<RemoveHarvest>, harvest_mint: Pubkey) -> Result<()> {
         &[farm_signer_bump_seed],
     ];
 
-    msg!("Transferring remaining harvest tokens to admin's wallet");
-    token::transfer(
-        CpiContext::new(
-            accounts.token_program.to_account_info(),
-            token::Transfer {
-                from: accounts.harvest_vault.to_account_info(),
-                to: accounts.admin_harvest_wallet.to_account_info(),
-                authority: accounts.farm_signer_pda.to_account_info(),
-            },
-        )
-        .with_signer(&[&signer_seed[..]]),
-        accounts.harvest_vault.amount,
-    )?;
     msg!("Closing the harvest vault");
     token::close_account(
         CpiContext::new(
