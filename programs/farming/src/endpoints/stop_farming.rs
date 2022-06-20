@@ -45,11 +45,9 @@ pub fn handle(
     let accounts = ctx.accounts;
 
     if unstake_max.amount == 0 {
-        msg!(
-            "The provided unstake maximum amount \
-            needs to be bigger than zero"
-        );
-        return Err(error!(FarmingError::InvalidArg));
+        return Err(error!(err::arg(
+            "The provided unstake maximum amount needs to be bigger than zero"
+        )));
     }
 
     let farm = accounts.farm.load()?;

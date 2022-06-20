@@ -189,13 +189,8 @@ export function test() {
       let stakeVaultInfo = await getAccount(provider.connection, stakeVault);
       expect(Number(stakeVaultInfo.amount)).to.eq(0);
 
-      const tokensPerSlot = 10;
-      await farm.newHarvestPeriod(
-        harvest.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      const tps = 10;
+      await farm.newHarvestPeriod(harvest.mint, 0, 100, tps);
 
       await farm.setMinSnapshotWindow(1);
       await farm.takeSnapshot();
@@ -232,13 +227,8 @@ export function test() {
       let stakeVaultInfo = await getAccount(provider.connection, stakeVault);
       expect(Number(stakeVaultInfo.amount)).to.eq(0);
 
-      const tokensPerSlot = 10;
-      await farm.newHarvestPeriod(
-        harvest.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      const tps = 10;
+      await farm.newHarvestPeriod(harvest.mint, 0, 100, tps);
       await farm.setMinSnapshotWindow(1);
       await farm.takeSnapshot();
 
@@ -263,14 +253,14 @@ export function test() {
       );
 
       const estimatedRewards =
-        (earnedRewardsToSlot - earningRewardsFromSlot) * tokensPerSlot;
+        (earnedRewardsToSlot - earningRewardsFromSlot) * tps;
       const actuaRewards = tokens.amount.toNumber();
 
       expect(actuaRewards).to.be.approximately(
         estimatedRewards,
         // there's a possibility that we will get different slot in our call
         // than the one that was active during the start farming
-        tokensPerSlot
+        tps
       );
 
       await farm.compoundSameFarm(farm.stakeMint, {

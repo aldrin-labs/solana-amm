@@ -93,14 +93,9 @@ export function test() {
       const { mint: harvestMint } = await farm.addHarvest();
 
       await farmer.airdropStakeTokens(20);
-      const tokensPerSlot = 10;
+      const tps = 10;
       await farm.setMinSnapshotWindow(1);
-      await farm.newHarvestPeriod(
-        harvestMint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      await farm.newHarvestPeriod(harvestMint, 0, 100, tps);
       await farm.takeSnapshot();
 
       await farmer.startFarming(20);
@@ -131,10 +126,10 @@ export function test() {
         earnedRewardsToSlot - earningRewardsFromSlot;
 
       expect(tokens.amount.toNumber()).to.be.approximately(
-        earnedRewardsForSlots * tokensPerSlot,
+        earnedRewardsForSlots * tps,
         // there's a possibility that we will get different slot in our call
         // than the one that was active during the start farming
-        tokensPerSlot
+        tps
       );
     });
 

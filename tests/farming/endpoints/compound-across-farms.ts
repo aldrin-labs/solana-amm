@@ -251,13 +251,8 @@ export function test() {
       );
       expect(Number(sourceStakeVaultInfo.amount)).to.eq(0);
 
-      const tokensPerSlot = 10;
-      await sourceFarm.newHarvestPeriod(
-        sourceHarvest.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      const tps = 10;
+      await sourceFarm.newHarvestPeriod(sourceHarvest.mint, 0, 100, tps);
       await sourceFarm.setMinSnapshotWindow(1);
       await sourceFarm.takeSnapshot();
 
@@ -318,13 +313,8 @@ export function test() {
 
       expect(Number(sourceStakeVaultInfo.amount)).to.eq(0);
 
-      const tokensPerSlot = 10;
-      await sourceFarm.newHarvestPeriod(
-        sourceHarvest.mint,
-        0,
-        (await getCurrentSlot()) + 100,
-        tokensPerSlot
-      );
+      const tps = 10;
+      await sourceFarm.newHarvestPeriod(sourceHarvest.mint, 0, 100, tps);
       const sourceHarvestVaultBeforeInfo = await getAccount(
         provider.connection,
         sourceHarvest.vault
@@ -354,14 +344,14 @@ export function test() {
       );
 
       const estimatedRewards =
-        (earnedRewardsToSlot - earningRewardsFromSlot) * tokensPerSlot;
+        (earnedRewardsToSlot - earningRewardsFromSlot) * tps;
       const actualRewards = tokens.amount.toNumber();
 
       expect(actualRewards).to.be.approximately(
         estimatedRewards,
         // there's a possibility that we will get different slot in our call
         // than the one that was active during the start farming
-        tokensPerSlot
+        tps
       );
 
       await sourceFarm.compoundAcrossFarms(targetFarm.stakeMint, {
