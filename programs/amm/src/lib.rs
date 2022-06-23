@@ -8,6 +8,7 @@
 pub mod consts;
 pub mod endpoints;
 pub mod err;
+pub mod math;
 pub mod models;
 pub mod prelude;
 
