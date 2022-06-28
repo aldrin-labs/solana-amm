@@ -1,4 +1,4 @@
-// We use zero copy for obligation. Zero copy uses
+// We use zero copy for [`Farm`]. Zero copy uses
 // [repr(packed)](https://doc.rust-lang.org/nomicon/other-reprs.html). In future
 // releases, taking a reference to a field which is packed will not compile.
 // We will need to, eventually, copy out fields we want to use, or create

@@ -4,12 +4,14 @@ import NodeWallet from "@project-serum/anchor/dist/cjs/nodewallet";
 import { expect } from "chai";
 import { Program, workspace } from "@project-serum/anchor";
 import { Farming } from "../target/types/farming";
+import { Amm } from "../target/types/amm";
 
 export const provider = AnchorProvider.local();
 setProvider(provider);
 export const payer = (provider.wallet as NodeWallet).payer;
 
 export const farming = workspace.Farming as Program<Farming>;
+export const amm = workspace.Amm as Program<Amm>;
 
 export async function errLogs(job: Promise<unknown>): Promise<string> {
   try {

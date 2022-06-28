@@ -1,10 +1,3 @@
-// We use zero copy for obligation. Zero copy uses
-// [repr(packed)](https://doc.rust-lang.org/nomicon/other-reprs.html). In future
-// releases, taking a reference to a field which is packed will not compile.
-// We will need to, eventually, copy out fields we want to use, or create
-// pointers [manually](https://github.com/rust-lang/rust/issues/82523).
-#![allow(unaligned_references, renamed_and_removed_lints, safe_packed_borrows)]
-
 pub mod consts;
 pub mod endpoints;
 pub mod err;
@@ -12,13 +5,24 @@ pub mod math;
 pub mod models;
 pub mod prelude;
 
+use crate::endpoints::*;
 use crate::prelude::*;
 
-// TODO: conditionally compile this based on feature "prod"
-// TODO: new dev pubkey
-declare_id!("DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ");
+// TODO: conditionally compile this based on feature "dev"
+declare_id!("DammDkC9TSZvYvggRVAwCRcKm1prRkyu84N1Ph6Qckx");
 
 #[program]
 pub mod amm {
-    //
+    use super::*;
+
+    /// # Important
+    /// This endpoint requires different accounts based on whether the program
+    /// is compiled with the "dev" feature.
+    pub fn create_program_toll(ctx: Context<CreateProgramToll>) -> Result<()> {
+        endpoints::create_program_toll::handle(ctx)
+    }
+
+    pub fn create_pool(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
+        endpoints::create_pool::handle(ctx, amplifier)
+    }
 }

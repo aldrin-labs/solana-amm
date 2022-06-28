@@ -3,6 +3,7 @@ seeds = false
 
 [programs.localnet]
 farming = "DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ"
+amm = "DammDkC9TSZvYvggRVAwCRcKm1prRkyu84N1Ph6Qckx"
 
 [registry]
 url = "https://anchor.projectserum.com"

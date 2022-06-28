@@ -49,7 +49,7 @@ export function test() {
     });
 
     it("fails if wrong whitelist pda is provided", async () => {
-      const [wrongPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+      const [wrongPda, _signerBumpSeed] = PublicKey.findProgramAddressSync(
         [Buffer.from("wrong_prefix"), farm.id.toBytes(), farm.id.toBytes()],
         farming.programId
       );
@@ -81,7 +81,7 @@ export function test() {
     });
 
     it("fails if wrong farm signer pda is provided", async () => {
-      const [wrongPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+      const [wrongPda, _correctBumpSeed] = PublicKey.findProgramAddressSync(
         [Buffer.from("wrong prefix"), farm.id.toBytes()],
         farming.programId
       );

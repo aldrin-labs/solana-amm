@@ -1,13 +1,14 @@
 //! TODO: docs
 
 use crate::prelude::*;
+use std::mem;
 
 #[account]
 pub struct Pool {
-    pub initializer: Pubkey,
+    pub admin: Pubkey,
     pub signer: Pubkey,
-    pub lp_token_program_fee_wallet: Pubkey,
-    pub lp_token_mint: Pubkey,
+    pub mint: Pubkey,
+    pub program_toll_wallet: Pubkey,
     pub dimension: u64,
     pub reserves: [Reserve; 4],
     pub curve: Curve,
@@ -15,7 +16,7 @@ pub struct Pool {
 }
 
 #[derive(
-    AnchorDeserialize, AnchorSerialize, Clone, Copy, Debug, Eq, PartialEq,
+    AnchorDeserialize, AnchorSerialize, Copy, Clone, Debug, Eq, PartialEq,
 )]
 pub enum Curve {
     ConstProd,
@@ -36,4 +37,30 @@ pub struct Reserve {
     pub tokens: TokenAmount,
     pub mint: Pubkey,
     pub vault: Pubkey,
+}
+
+impl Pool {
+    pub const SIGNER_PDA_PREFIX: &'static [u8; 6] = b"signer";
+
+    pub fn space() -> usize {
+        let discriminant = 8;
+        let initializer = 32;
+        let signer = 32;
+        let lp_token_program_fee_wallet = 32;
+        let mint = 32;
+        let dimension = 8;
+        let reserves = mem::size_of::<Reserve>() * 4;
+        let curve = mem::size_of::<Curve>();
+        let fee = mem::size_of::<Fraction>();
+
+        discriminant
+            + initializer
+            + signer
+            + lp_token_program_fee_wallet
+            + mint
+            + dimension
+            + reserves
+            + curve
+            + fee
+    }
 }

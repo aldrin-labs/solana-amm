@@ -29,4 +29,4 @@ echo
 
 skip_build_flag=$($skip_build && echo "--skip-build")
 detach_flag=$($detach && echo "--detach")
-npm t -- ${skip_build_flag} ${detach_flag}
+npm t -- ${skip_build_flag} ${detach_flag} -- --features dev
