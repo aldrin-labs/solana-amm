@@ -1,6 +1,6 @@
 [package]
 name = "amm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deposit liquidity to earn fees and swap between mints"
 edition = "2021"
 
@@ -14,12 +14,15 @@ no-idl = []
 no-log-ix-name = []
 cpi = ["no-entrypoint"]
 default = []
+dev = []
 
 [dependencies]
 anchor-lang = "0.24.2"
 anchor-spl = "0.24.2"
-decimal = { git = "ssh://git@gitlab.com/crypto_project/defi/decimal.git", tag = "0.1.0" }
+decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.1.1" }
 
 [dev-dependencies]
 solana-sdk = "1.9.18"
 serial_test = "0.6"
+pretty_assertions = "1.2"
+anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.2.1" }

@@ -139,7 +139,7 @@ export class Farm {
     const stakeVault =
       input.stakeVault ??
       (await (async () => {
-        const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
+        const [pda, _bumpSeed] = PublicKey.findProgramAddressSync(
           [Buffer.from("stake_vault"), farmKeypair.publicKey.toBytes()],
           farming.programId
         );
@@ -182,7 +182,7 @@ export class Farm {
   }
 
   public async stakeVault(): Promise<PublicKey> {
-    const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
+    const [pda, _bumpSeed] = PublicKey.findProgramAddressSync(
       [Buffer.from("stake_vault"), this.id.toBytes()],
       farming.programId
     );
@@ -208,7 +208,7 @@ export class Farm {
   }
 
   public async findWhitelistPda(targetFarm: PublicKey): Promise<PublicKey> {
-    const [pda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+    const [pda, _signerBumpSeed] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("whitelist_compounding"),
         this.id.toBytes(),
@@ -220,7 +220,7 @@ export class Farm {
   }
 
   public async harvestVault(mint: PublicKey): Promise<PublicKey> {
-    const [pda, _bumpSeed] = await PublicKey.findProgramAddress(
+    const [pda, _bumpSeed] = PublicKey.findProgramAddressSync(
       [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
       farming.programId
     );
@@ -506,7 +506,7 @@ export class Farm {
     const targetFarm = input.targetFarm ?? Keypair.generate().publicKey;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
-    const [correctPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _signerBumpSeed] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("whitelist_compounding"),
         this.id.toBytes(),
@@ -542,7 +542,7 @@ export class Farm {
     const targetFarm = input.targetFarm ?? Keypair.generate().publicKey;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
-    const [correctPda, _signerBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _signerBumpSeed] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("whitelist_compounding"),
         this.id.toBytes(),
@@ -583,7 +583,7 @@ export class Farm {
 
     // Whitelist PDA
     const [whitelistCorrectPda, _signerBumpSeed] =
-      await PublicKey.findProgramAddress(
+      PublicKey.findProgramAddressSync(
         [Buffer.from("whitelist_compounding"), farm.toBytes(), farm.toBytes()],
         farming.programId
       );
@@ -614,11 +614,10 @@ export class Farm {
     const possibleTargetFarm = await Farm.init();
     const targetFarm = input.targetFarm ?? possibleTargetFarm.id;
 
-    const [correctTargetVaultPda, _bumpSeed] =
-      await PublicKey.findProgramAddress(
-        [Buffer.from("stake_vault"), targetFarm.toBytes()],
-        farming.programId
-      );
+    const [correctTargetVaultPda, _bumpSeed] = PublicKey.findProgramAddressSync(
+      [Buffer.from("stake_vault"), targetFarm.toBytes()],
+      farming.programId
+    );
     const targetStakeVault = input.targetStakeVault ?? correctTargetVaultPda;
 
     const sourceFarmer =
@@ -632,7 +631,7 @@ export class Farm {
 
     // Whitelist PDA
     const [whitelistCorrectPda, _signerBumpSeed] =
-      await PublicKey.findProgramAddress(
+      PublicKey.findProgramAddressSync(
         [
           Buffer.from("whitelist_compounding"),
           this.id.toBytes(),

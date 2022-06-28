@@ -187,7 +187,7 @@ export class Farmer {
     const authority = input.authority ?? this.authority;
     const stakeVault = input.stakeVault ?? (await this.farm.stakeVault());
 
-    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _correctBumpSeed] = PublicKey.findProgramAddressSync(
       [Buffer.from("signer"), this.farm.id.toBytes()],
       farming.programId
     );
@@ -233,7 +233,7 @@ export class Farmer {
     const authority = input.authority ?? this.authority;
     const skipAuthoritySignature = input.skipAuthoritySignature ?? false;
 
-    const [correctPda, _correctBumpSeed] = await PublicKey.findProgramAddress(
+    const [correctPda, _correctBumpSeed] = PublicKey.findProgramAddressSync(
       [Buffer.from("signer"), this.farm.id.toBytes()],
       farming.programId
     );

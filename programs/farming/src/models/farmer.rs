@@ -11,7 +11,7 @@ use std::{cmp, mem};
 /// therefore enables single transaction claim. This account tracks everything
 /// related to the farmer's stake.
 #[account]
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct Farmer {
     /// This signer can claim harvest, start/stop farming.
     pub authority: Pubkey,

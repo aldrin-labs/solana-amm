@@ -19,13 +19,6 @@ unit:
     key: "unit-cache-${CI_COMMIT_BRANCH}"
     paths:
       - target
-  before_script:
-    # Add SSH key which is stored in gitlab variables and allows us to access
-    # dependency crates in different repos.
-    - eval $(ssh-agent -s)
-    - ssh-add <(echo "$SSH_PRIVATE_KEY")
-    - mkdir -p ~/.ssh
-    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
   script:
     - cargo fmt --check
     - cargo clippy -- -D warnings
@@ -49,13 +42,6 @@ program:
       - target/idl/amm.json
       - target/types/amm.ts
   before_script:
-    # Add SSH key which is stored in gitlab variables and allows us to access
-    # dependency crates in different repos.
-    - eval $(ssh-agent -s)
-    - ssh-add <(echo "$SSH_PRIVATE_KEY")
-    - mkdir -p ~/.ssh
-    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
-
     - yarn
   script:
     - npm run build
@@ -74,13 +60,6 @@ program:
   artifacts:
     paths:
       - public
-  before_script:
-    # Add SSH key which is stored in gitlab variables and allows us to access
-    # dependency crates in different repos.
-    - eval $(ssh-agent -s)
-    - ssh-add <(echo "$SSH_PRIVATE_KEY")
-    - mkdir -p ~/.ssh
-    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
   script:
     # generates docs.rs style page
     - cargo doc --lib --no-deps --document-private-items
