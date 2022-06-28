@@ -1,6 +1,8 @@
+pub mod discount;
 pub mod pool;
 pub mod program_toll;
 
+pub use discount::*;
 pub use pool::*;
 pub use program_toll::*;
 

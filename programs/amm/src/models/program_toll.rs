@@ -1,3 +1,5 @@
+//! TODO: docs
+
 use crate::prelude::*;
 
 #[account]
