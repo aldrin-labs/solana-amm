@@ -8,7 +8,7 @@ pub struct ProgramToll {
 }
 
 impl ProgramToll {
-    pub const ACCOUNT_SEED: &'static [u8; 4] = b"toll";
+    pub const PDA_SEED: &'static [u8; 4] = b"toll";
 
     pub fn space() -> usize {
         let discriminant = 8;

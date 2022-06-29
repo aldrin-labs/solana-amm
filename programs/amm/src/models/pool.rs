@@ -12,7 +12,7 @@ pub struct Pool {
     pub dimension: u64,
     pub reserves: [Reserve; 4],
     pub curve: Curve,
-    pub fee: Fraction,
+    pub fee: Permillion,
 }
 
 #[derive(
@@ -51,7 +51,7 @@ impl Pool {
         let dimension = 8;
         let reserves = mem::size_of::<Reserve>() * 4;
         let curve = mem::size_of::<Curve>();
-        let fee = mem::size_of::<Fraction>();
+        let fee = mem::size_of::<Permillion>();
 
         discriminant
             + initializer

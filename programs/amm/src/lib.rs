@@ -34,4 +34,13 @@ pub mod amm {
     pub fn create_pool(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
         endpoints::create_pool::handle(ctx, amplifier)
     }
+
+    pub fn put_discount(
+        ctx: Context<PutDiscount>,
+        user: Pubkey,
+        discount_amount: Permillion,
+        valid_until: Slot,
+    ) -> Result<()> {
+        endpoints::put_discount::handle(ctx, user, discount_amount, valid_until)
+    }
 }

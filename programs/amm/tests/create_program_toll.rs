@@ -98,7 +98,7 @@ impl Default for Tester {
         let program_toll = AccountInfoWrapper::pda(
             amm::ID,
             "program_toll",
-            &[ProgramToll::ACCOUNT_SEED],
+            &[ProgramToll::PDA_SEED],
         )
         .size(ProgramToll::space())
         .mutable()

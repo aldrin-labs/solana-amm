@@ -6,6 +6,21 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2022-06-29
+
+### Changed
+
+- Renamed model `Fraction` to `Permillion`.
+
+### Added
+
+- Error variant `InvalidArg`
+- Model `Discount` which is in a one-to-one relationship with a user (ie.
+  a pubkey) and defines user's discount on swap.
+- Endpoint `put_discount` which creates or updates user's discount. This
+  endpoint is permissioned and can only be called by a signer with a pubkey
+  defined in the `DiscountSettings` model.
+
 ## [0.2.1] - 2022-06-28
 
 ### Added

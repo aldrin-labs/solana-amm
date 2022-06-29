@@ -14,7 +14,7 @@ unit:
     reports:
       coverage_report:
         coverage_format: cobertura
-        path: target/debug/coverage/cobertura.xml
+        path: target/release/coverage/cobertura.xml
   cache:
     key: "unit-cache-${CI_COMMIT_BRANCH}"
     paths:
@@ -68,7 +68,7 @@ program:
 
     # generate code coverage report
     - ./bin/codecov.sh
-    - cp -r target/debug/coverage public
+    - cp -r target/release/coverage public
 
     # generates public index html file from README
     - node /scripts/prepareReadme.js |
