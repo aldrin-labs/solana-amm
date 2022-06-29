@@ -4,6 +4,7 @@ use crate::prelude::*;
 use std::mem;
 
 #[account]
+#[derive(Default)]
 pub struct Pool {
     pub admin: Pubkey,
     pub signer: Pubkey,
@@ -62,5 +63,11 @@ impl Pool {
             + reserves
             + curve
             + fee
+    }
+}
+
+impl Default for Curve {
+    fn default() -> Self {
+        Curve::ConstProd
     }
 }
