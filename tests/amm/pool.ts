@@ -5,7 +5,7 @@ import { createProgramToll, programTollAddress } from "./amm";
 import { BN } from "@project-serum/anchor";
 
 export class Pool {
-  private constructor(public id: PublicKey) {
+  private constructor(public id: PublicKey, public admin: Keypair) {
     //
   }
 
@@ -75,7 +75,7 @@ export class Pool {
       .signers([admin, id])
       .rpc();
 
-    return new Pool(id.publicKey);
+    return new Pool(id.publicKey, admin);
   }
 
   public async fetch() {
@@ -95,5 +95,15 @@ export class Pool {
 
   public signerPda(): PublicKey {
     return Pool.signerFrom(this.id);
+  }
+
+  public async setSwapFee(permillion: number) {
+    await amm.methods
+      .setPoolSwapFee({
+        permillion: new BN(permillion),
+      })
+      .accounts({ admin: this.admin.publicKey, pool: this.id })
+      .signers([this.admin])
+      .rpc();
   }
 }

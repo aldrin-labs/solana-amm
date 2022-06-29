@@ -43,4 +43,11 @@ pub mod amm {
     ) -> Result<()> {
         endpoints::put_discount::handle(ctx, user, discount_amount, valid_until)
     }
+
+    pub fn set_pool_swap_fee(
+        ctx: Context<SetPoolSwapFee>,
+        fee: Permillion,
+    ) -> Result<()> {
+        endpoints::set_pool_swap_fee::handle(ctx, fee)
+    }
 }
