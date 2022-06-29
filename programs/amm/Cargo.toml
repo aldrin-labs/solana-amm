@@ -1,6 +1,6 @@
 [package]
 name = "amm"
-version = "0.2.0"
+version = "0.2.1"
 description = "Deposit liquidity to earn fees and swap between mints"
 edition = "2021"
 

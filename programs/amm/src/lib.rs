@@ -22,6 +22,15 @@ pub mod amm {
         endpoints::create_program_toll::handle(ctx)
     }
 
+    /// # Important
+    /// This endpoint requires different accounts based on whether the program
+    /// is compiled with the "dev" feature.
+    pub fn create_discount_settings(
+        ctx: Context<CreateDiscountSettings>,
+    ) -> Result<()> {
+        endpoints::create_discount_settings::handle(ctx)
+    }
+
     pub fn create_pool(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
         endpoints::create_pool::handle(ctx, amplifier)
     }
