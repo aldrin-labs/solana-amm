@@ -28,7 +28,7 @@ pub struct CreateProgramToll<'info> {
         init,
         payer = program_authority,
         space = ProgramToll::space(),
-        seeds = [ProgramToll::ACCOUNT_SEED],
+        seeds = [ProgramToll::PDA_SEED],
         bump,
     )]
     pub program_toll: Account<'info, ProgramToll>,
@@ -52,7 +52,7 @@ pub struct CreateProgramToll<'info> {
         init,
         payer = program_toll_authority,
         space = ProgramToll::space(),
-        seeds = [ProgramToll::ACCOUNT_SEED],
+        seeds = [ProgramToll::PDA_SEED],
         bump,
     )]
     pub program_toll: Account<'info, ProgramToll>,

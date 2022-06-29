@@ -30,7 +30,7 @@ pub struct CreatePool<'info> {
     )]
     pub pool_signer: AccountInfo<'info>,
     #[account(
-        seeds = [ProgramToll::ACCOUNT_SEED],
+        seeds = [ProgramToll::PDA_SEED],
         bump,
     )]
     pub program_toll: Account<'info, ProgramToll>,

@@ -33,7 +33,7 @@ pub struct CreateDiscountSettings<'info> {
         init,
         payer = program_authority,
         space = DiscountSettings::space(),
-        seeds = [DiscountSettings::ACCOUNT_SEED],
+        seeds = [DiscountSettings::PDA_SEED],
         bump,
     )]
     pub discount_settings: Account<'info, DiscountSettings>,
@@ -57,7 +57,7 @@ pub struct CreateDiscountSettings<'info> {
         init,
         payer = discount_settings_authority,
         space = DiscountSettings::space(),
-        seeds = [DiscountSettings::ACCOUNT_SEED],
+        seeds = [DiscountSettings::PDA_SEED],
         bump,
     )]
     pub discount_settings: Account<'info, DiscountSettings>,

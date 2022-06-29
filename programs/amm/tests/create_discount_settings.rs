@@ -99,7 +99,7 @@ impl Default for Tester {
         let discount_settings = AccountInfoWrapper::pda(
             amm::ID,
             "discount_settings",
-            &[DiscountSettings::ACCOUNT_SEED],
+            &[DiscountSettings::PDA_SEED],
         )
         .size(DiscountSettings::space())
         .mutable()
