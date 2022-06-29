@@ -82,3 +82,9 @@ impl Permillion {
         }
     }
 }
+
+impl From<TokenAmount> for Decimal {
+    fn from(tokens: TokenAmount) -> Self {
+        Decimal::from(tokens.amount)
+    }
+}
