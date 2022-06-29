@@ -7,6 +7,48 @@
 - [Rust docs][amm-rust-docs]
 - [Changelog][amm-changelog]
 
+## Equations
+
+Search for `ref. eq. (x)` to find an equation _x_ in the codebase.
+
+| Symbol  | Description                 |
+| ------- | --------------------------- |
+| $`A`$   | Stable swap curve amplifier |
+| $`x_i`$ | i-th token deposit amount   |
+| $`D`$   | Stable swap curve invariant |
+
+⌐
+
+The stable swap polynomial is responsible for indexing relative token prices
+with a decentralized AMM liquidity pool. The basic idea is that token prices
+are indexed via a mathematical curve, which corresponds to a variation on the
+hyperbola graph (given by the equation $`xy = k`$, with two reserves).
+
+```math
+SSP(D) := \frac{D^{n+1}}{\prod_i x_i} + A D^{n} - D - A n^n \sum_i x_i
+\tag{1}
+```
+
+The stable swap polynomial permits us to compute swap values, and we should
+update the value of $`D`$, whenever a new deposit, or redeem liquidity is
+performed on the pool. Indeed, the value of curve invariant $`D`$ should always
+correspond to the positive zero of $`SSP(D)`$. In our current amm
+implementation, we use the Newton-Raphson method to approximate the true value
+of $`D`$ (as this amounts to solve a polynomial equation of higher degree). A
+suitable initial guess for the method is to take $`D`$ to be the total sum of
+token reserves in the pool.
+
+⊢
+
+Derivative of stable swap polynomial:
+
+```math
+SSP'(D) := \frac{(n + 1) D^n}{\prod_i x_i} + n A D^{n - 1} - 1
+\tag{2}
+```
+
+⌙
+
 # Farming program (Fp)
 
 - [Rust docs][fp-rust-docs]

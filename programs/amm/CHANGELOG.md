@@ -6,17 +6,20 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2022-06-29
+
+### Added
+
+- Logic to perform Newton-Raphson method to compute new value
+  of curve invariant, whenever one deposits/redeems liquidity
+  on the given LP.
+
 ## [0.3.1] - 2022-06-29
 
 ### Added
 
 - Logic which enables us to calculate the amount of tokens to deposit and LP
   tokens to mint.
-
-## [0.3.1] - 2022-06-29
-
-### Added
-
 - Endpoint `set_pool_swap_fee`
 
 ## [0.3.0] - 2022-06-29
