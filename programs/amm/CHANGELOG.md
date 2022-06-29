@@ -10,6 +10,13 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 
 ### Added
 
+- Logic which enables us to calculate the amount of tokens to deposit and LP
+  tokens to mint.
+
+## [0.3.1] - 2022-06-29
+
+### Added
+
 - Endpoint `set_pool_swap_fee`
 
 ## [0.3.0] - 2022-06-29
