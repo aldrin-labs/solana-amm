@@ -50,4 +50,11 @@ pub mod amm {
     ) -> Result<()> {
         endpoints::set_pool_swap_fee::handle(ctx, fee)
     }
+
+    pub fn deposit_liquidity<'info>(
+        ctx: Context<'_, '_, '_, 'info, DepositLiquidity<'info>>,
+        max_amount_tokens: Vec<DepositMintTokens>,
+    ) -> Result<()> {
+        endpoints::deposit_liquidity::handle(ctx, max_amount_tokens)
+    }
 }

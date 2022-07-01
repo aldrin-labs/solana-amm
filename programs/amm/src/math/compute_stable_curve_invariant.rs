@@ -39,14 +39,30 @@ pub fn compute_stable_curve_invariant(
             &prev_val,
         )?;
 
-        // we proved by algebraic manipulations that given a first initial guess
+        let is_val_root_stable_poly =
+            get_stable_swap_polynomial(amp, token_reserves_amount, &prev_val)?
+                == Decimal::zero();
+
+        // We proved by algebraic manipulations that given a first initial guess
         // coinciding with the sum of token reserve balances, then sum(x_i) >=
         // positive_zero where positive_zero is the positive zero of the
         // stable swap polynomial. Moreover, the method is decreasing on
         // each iteration. Therefore, in order to check that the method
         // converges, we only need to check that (prev_iter - next_iter) <=
-        // adm_err
-        if prev_val <= new_val {
+        // adm_err. Given this assumption, it is impossible that prev_val <
+        // new_val and the only case where equality holds is when
+        // prev_val is a precise root of the polynomial.
+        // Notice also that if x is a root of the stable polynomial,
+        // applying Newton method to it will result in getting x again,
+        // and the reciprocal statement holds true, so it is an equivalence.
+        // Thus, the following checks are sufficient to guarantee
+        // full logic coverage.
+        if prev_val <= new_val && is_val_root_stable_poly {
+            return Ok(prev_val);
+        } else if prev_val <= new_val {
+            // in this case, prev_val is not a root of the polynomial, and
+            // therefore having prev_val <= new_val would violate our
+            // mathematical assumptions
             msg!(
                 "Invalid mathematical assumption: previous value cannot be \
                 less or equal to new value"

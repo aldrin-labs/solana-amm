@@ -4,8 +4,8 @@ use crate::prelude::*;
 use std::collections::BTreeMap;
 use std::mem;
 
+#[derive(Default, Debug)]
 #[account]
-#[derive(Default)]
 pub struct Pool {
     pub admin: Pubkey,
     pub signer: Pubkey,
@@ -16,6 +16,8 @@ pub struct Pool {
     /// than that. If the pool only has 2 token reserves then, then first two
     /// elements of this array represent those reserves and the other two
     /// elements should have the default value.
+    ///
+    /// TODO: find out whether we can make this private
     pub reserves: [Reserve; 4],
     pub curve: Curve,
     pub fee: Permillion,
@@ -49,7 +51,22 @@ pub struct Reserve {
     pub vault: Pubkey,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(
+    AnchorDeserialize,
+    AnchorSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+)]
+pub struct DepositMintTokens {
+    pub mint: Pubkey,
+    pub tokens: TokenAmount,
+}
+
+#[derive(Debug, Eq, PartialEq, Default)]
 pub struct DepositResult {
     pub lp_tokens_to_distribute: TokenAmount,
     pub tokens_to_deposit: BTreeMap<Pubkey, TokenAmount>,
@@ -58,6 +75,15 @@ pub struct DepositResult {
 impl Default for Curve {
     fn default() -> Self {
         Curve::ConstProd
+    }
+}
+
+impl Curve {
+    pub fn invariant(&self) -> Option<Decimal> {
+        match self {
+            Curve::ConstProd => None,
+            Curve::Stable { invariant, .. } => Some(Decimal::from(*invariant)),
+        }
     }
 }
 
@@ -360,6 +386,67 @@ impl Pool {
                 .ok_or(AmmError::MathOverflow)?,
         ))
     }
+
+    /// This is called after a deposit or redemption.
+    pub fn update_curve_invariant(&mut self) -> Result<()> {
+        match self.curve {
+            Curve::ConstProd => (),
+            Curve::Stable { amplifier, .. } => {
+                // need to recompute curve invariant, using Newton-Raphson
+                // approximation method
+                let token_reserves_amount: Vec<Decimal> = self
+                    .reserves()
+                    .iter()
+                    .map(|rs| Decimal::from(rs.tokens.amount))
+                    .collect();
+
+                // this can happen on redeem, when all tokens are withdrawn
+                self.curve = if token_reserves_amount
+                    .iter()
+                    .any(|a| a == &Decimal::zero())
+                {
+                    Curve::Stable {
+                        amplifier,
+                        invariant: Decimal::zero().into(),
+                    }
+                } else {
+                    let invariant: SDecimal =
+                        math::compute_stable_curve_invariant(
+                            &Decimal::from(amplifier),
+                            &token_reserves_amount,
+                        )?
+                        .into();
+                    Curve::Stable {
+                        amplifier,
+                        invariant,
+                    }
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn check_amount_tokens_is_valid(
+        &self,
+        amount_tokens: &BTreeMap<Pubkey, TokenAmount>,
+    ) -> Result<()> {
+        // check that max_amount_tokens have the correct mint pubkeys
+        // vec of all non-trivial mints
+        let num_available_mints = self
+            .reserves()
+            .iter()
+            .filter(|r| amount_tokens.contains_key(&r.mint))
+            .count();
+
+        // in case there are missing mints from max_amount_tokens compared to
+        // the pool reserves, we throw an error
+        if num_available_mints != amount_tokens.len() {
+            return Err(error!(AmmError::InvalidTokenMints));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -643,5 +730,166 @@ mod tests {
             .is_err());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_update_curve_invariant() {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 250 },
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 0 },
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            curve: Curve::Stable {
+                amplifier: 10_u64,
+                invariant: Decimal::from(360_u64).into(),
+            },
+            ..Default::default()
+        };
+
+        pool.update_curve_invariant().unwrap();
+
+        let invariant = match pool.curve {
+            Curve::ConstProd => panic!("unexpected constant product curve"),
+            Curve::Stable { invariant, .. } => invariant,
+        };
+
+        assert_eq!(
+            invariant,
+            SDecimal::from(Decimal::from_scaled_val(352805602632122973013))
+        );
+    }
+
+    #[test]
+    fn test_check_amount_tokens_is_valid_fails() {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 250 },
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 0 },
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            curve: Curve::Stable {
+                amplifier: 10_u64,
+                invariant: Decimal::from(360_u64).into(),
+            },
+            ..Default::default()
+        };
+
+        let amount_tokens1 = BTreeMap::from([
+            (Pubkey::new_unique(), TokenAmount { amount: 10 }),
+            (mint2, TokenAmount { amount: 100 }),
+            (mint3, TokenAmount { amount: 250 }),
+        ]);
+
+        assert!(pool.check_amount_tokens_is_valid(&amount_tokens1).is_err());
+
+        let amount_tokens2 = BTreeMap::from([
+            (mint1, TokenAmount { amount: 10 }),
+            (Pubkey::new_unique(), TokenAmount { amount: 100 }),
+            (mint3, TokenAmount { amount: 250 }),
+        ]);
+
+        assert!(pool.check_amount_tokens_is_valid(&amount_tokens2).is_err());
+
+        let amount_tokens3 = BTreeMap::from([
+            (mint1, TokenAmount { amount: 10 }),
+            (mint2, TokenAmount { amount: 100 }),
+            (Pubkey::new_unique(), TokenAmount { amount: 250 }),
+        ]);
+
+        assert!(pool.check_amount_tokens_is_valid(&amount_tokens3).is_err());
+    }
+
+    #[test]
+    fn test_check_amount_tokens_is_valid_succeeds() {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 250 },
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 0 },
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            curve: Curve::Stable {
+                amplifier: 10_u64,
+                invariant: Decimal::from(360_u64).into(),
+            },
+            ..Default::default()
+        };
+
+        let amount_tokens = BTreeMap::from([
+            (mint1, TokenAmount { amount: 10 }),
+            (mint2, TokenAmount { amount: 100 }),
+            (mint3, TokenAmount { amount: 250 }),
+        ]);
+
+        pool.check_amount_tokens_is_valid(&amount_tokens).unwrap();
     }
 }
