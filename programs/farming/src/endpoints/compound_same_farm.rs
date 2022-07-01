@@ -22,7 +22,7 @@ pub struct CompoundSameFarm<'info> {
     )]
     pub farm_signer_pda: AccountInfo<'info>,
     /// CHECK: UNSAFE_CODES.md#signer
-    /// The whitelist is signaled by the existance of the following PDA
+    /// The whitelist is signaled by the existence of the following PDA
     #[account(
         seeds = [
             Farm::WHITELIST_PDA_PREFIX,
@@ -69,17 +69,6 @@ pub struct CompoundSameFarm<'info> {
 
 pub fn handle(ctx: Context<CompoundSameFarm>) -> Result<()> {
     let accounts = ctx.accounts;
-    let farm_info = accounts.farm.to_account_info();
-
-    Pubkey::try_find_program_address(
-        &[
-            Farm::WHITELIST_PDA_PREFIX,
-            farm_info.key().as_ref(),
-            farm_info.key().as_ref(),
-        ],
-        ctx.program_id,
-    )
-    .ok_or_else(|| err::acc("Farm is not whitelisted"))?;
 
     let farm = accounts.farm.load()?;
     let current_slot = Slot::current()?;
