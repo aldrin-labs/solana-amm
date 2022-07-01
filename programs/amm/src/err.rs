@@ -15,6 +15,19 @@ pub enum AmmError {
     /// program logic works as intended.
     #[msg("There's a bug in the program, see logs for more info")]
     InvariantViolation,
+    /// Use this error whenever trying to interact with a pool, but providing
+    /// wrong token mints
+    #[msg("Current mints are not available on current pool")]
+    InvalidTokenMints,
+    /// Invalid specification of pool token vault and user token wallet
+    #[msg("Invalid specification of pool token vault and user token wallet")]
+    InvalidTokenVaultWalletSpecification,
+    /// Invalid account owner
+    #[msg("Invalid account owner, does not coincide with user")]
+    InvalidAccountOwner,
+    /// Invalid token amount to deposit
+    #[msg("Invalid token amount to deposit")]
+    InvalidTokenAmount,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {
