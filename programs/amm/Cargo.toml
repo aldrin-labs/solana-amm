@@ -1,6 +1,6 @@
 [package]
 name = "amm"
-version = "0.4.0"
+version = "0.4.1"
 description = "Deposit liquidity to earn fees and swap between mints"
 edition = "2021"
 
@@ -25,4 +25,4 @@ decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.
 solana-sdk = "1.9.18"
 serial_test = "0.6"
 pretty_assertions = "1.2"
-anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.2.3" }
+anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.2.4" }

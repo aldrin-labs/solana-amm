@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "amm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -225,8 +225,8 @@ dependencies = [
 
 [[package]]
 name = "anchortest"
-version = "0.2.3"
-source = "git+https://github.com/aldrin-exchange/solana-anchortest?tag=0.2.3#f7847217e687e877f6b3069d08286a72154e6e78"
+version = "0.2.4"
+source = "git+https://github.com/aldrin-exchange/solana-anchortest?tag=0.2.4#00ecdc8caddf0dcf0324860445756985900c362b"
 dependencies = [
  "anchor-lang",
  "anchor-spl",

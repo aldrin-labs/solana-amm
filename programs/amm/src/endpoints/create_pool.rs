@@ -56,12 +56,12 @@ pub struct CreatePool<'info> {
 }
 
 pub fn handle(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
-    let accounts = ctx.accounts;
+    let accs = ctx.accounts;
 
-    accounts.pool.mint = accounts.lp_mint.key();
-    accounts.pool.admin = accounts.admin.key();
-    accounts.pool.signer = accounts.pool_signer.key();
-    accounts.pool.curve = if amplifier == 0 {
+    accs.pool.mint = accs.lp_mint.key();
+    accs.pool.admin = accs.admin.key();
+    accs.pool.signer = accs.pool_signer.key();
+    accs.pool.curve = if amplifier == 0 {
         Curve::ConstProd
     } else {
         Curve::Stable {
@@ -73,9 +73,25 @@ pub fn handle(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
     if ctx.remaining_accounts.len() > consts::MAX_RESERVES {
         return Err(error!(err::acc("Too many reserves")));
     }
+
+    let is_lp_mint_without_supply = accs.lp_mint.supply == 0;
     let mut mints = BTreeSet::new();
     for (index, vault_info) in ctx.remaining_accounts.iter().enumerate() {
         let vault = Account::<TokenAccount>::try_from(vault_info)?;
+
+        if is_lp_mint_without_supply && vault.amount != 0 {
+            // if there are no minted LP tokens, then vaults must be empty
+            return Err(error!(err::acc(
+                "If LP mint supply is zero, then vault amount must too"
+            )));
+        } else if !is_lp_mint_without_supply && vault.amount == 0 {
+            // if there are LP tokens minted already, then vaults must be empty,
+            // otherwise the admin could have minted bunch of LP tokens up front
+            // and then just redeem them when liquidity was deposited
+            return Err(error!(err::acc(
+                "If LP mint supply is not zero then vault amount mustn't either"
+            )));
+        }
 
         if mints.contains(&vault.mint) {
             return Err(error!(err::acc("Duplicate reserve mint")));
@@ -88,7 +104,7 @@ pub fn handle(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
         if vault.delegate.is_some() {
             return Err(error!(err::acc("Vault mustn't have a delegate")));
         }
-        if vault.owner != accounts.pool_signer.key() {
+        if vault.owner != accs.pool_signer.key() {
             return Err(error!(err::acc("Vault owner must be pool signer")));
         }
         if vault.is_frozen() {
@@ -96,7 +112,7 @@ pub fn handle(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
         }
 
         mints.insert(vault.mint);
-        accounts.pool.reserves[index] = Reserve {
+        accs.pool.reserves[index] = Reserve {
             vault: vault_info.key(),
             mint: vault.mint,
             tokens: TokenAmount::new(vault.amount),
@@ -107,8 +123,8 @@ pub fn handle(ctx: Context<CreatePool>, amplifier: u64) -> Result<()> {
         return Err(error!(err::acc("At least 2 vaults must be provided")));
     }
 
-    accounts.pool.dimension = mints.len() as u64;
-    accounts.pool.program_toll_wallet = accounts.program_toll_wallet.key();
+    accs.pool.dimension = mints.len() as u64;
+    accs.pool.program_toll_wallet = accs.program_toll_wallet.key();
 
     Ok(())
 }

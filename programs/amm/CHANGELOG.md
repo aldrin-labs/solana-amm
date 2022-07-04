@@ -6,6 +6,19 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 20022-07-04
+
+### Changed
+
+- We error the pool creation if the provided LP mint supply is not zero but the
+  vaults are empty. This implies that the admin has minted LP tokens before
+  creating the pool, and therefore could get free liquidity if users deposited
+  into the pool.
+- We error the pool creation if the provided LP mint supply is zero but the
+  vaults aren't empty. While there is no risk for the users in this scenario,
+  having 0 supply should imply empty vaults, an invariant of the program which
+  we want to preserve.
+
 ## [0.4.0] - 20022-07-04
 
 ### Removed

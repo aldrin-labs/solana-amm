@@ -6,7 +6,7 @@ use anchor_spl::token;
 use anchor_spl::token::spl_token::state::AccountState;
 use anchortest::{
     builder::*,
-    spl::{self, TokenAccountExt},
+    spl::{self, MintExt, TokenAccountExt},
     stub,
 };
 use pretty_assertions::assert_eq;
@@ -309,6 +309,44 @@ fn fails_if_vault_is_frozen() -> Result<()> {
     })
     .take(2)
     .collect();
+
+    assert!(test
+        .create_pool(CONST_PROD_AMPLIFIER)
+        .unwrap_err()
+        .to_string()
+        .contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn fails_if_vaults_not_empty_but_lp_mint_supply_is_zero() -> Result<()> {
+    let mut test = Tester::default();
+    test.vaults = iter::repeat_with(|| {
+        AccountInfoWrapper::new()
+            .pack(spl::token_account(test.pool_signer.key).amount(10))
+            .owner(token::ID)
+    })
+    .take(2)
+    .collect();
+
+    assert!(test
+        .create_pool(CONST_PROD_AMPLIFIER)
+        .unwrap_err()
+        .to_string()
+        .contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn fails_if_vaults_empty_but_lp_mint_supply_is_not_zero() -> Result<()> {
+    let mut test = Tester::default();
+    test.lp_mint.data = AccountInfoWrapper::new()
+        .pack(spl::mint(test.pool_signer.key).supply(10))
+        .data;
 
     assert!(test
         .create_pool(CONST_PROD_AMPLIFIER)
