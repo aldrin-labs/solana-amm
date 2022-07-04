@@ -72,6 +72,12 @@ pub struct DepositResult {
     pub tokens_to_deposit: BTreeMap<Pubkey, TokenAmount>,
 }
 
+#[derive(Debug, Eq, PartialEq, Default)]
+pub struct RedeemResult {
+    pub lp_tokens_to_burn: TokenAmount,
+    pub tokens_to_redeem: BTreeMap<Pubkey, TokenAmount>,
+}
+
 impl Default for Curve {
     fn default() -> Self {
         Curve::ConstProd
@@ -315,6 +321,112 @@ impl Pool {
         Ok(DepositResult {
             lp_tokens_to_distribute,
             tokens_to_deposit,
+        })
+    }
+
+    /// This method calculates the tokens to redeem out of a given amount of lp
+    /// tokens the user is relinquishing back to the pool, to be burned. The
+    /// user will also provide a [`BTreeMap`] of min tokens, which serves as a
+    /// threshold that guarantees that the redemption only takes place if the
+    /// computed tokens to be redeemed are above the min amounts. If this last
+    /// condition is not met, the method will return an error.
+    ///
+    /// This method returns [`RedeemResult`] with the actual amount of tokens
+    /// to redeem along with the amount of lp tokens to be burned.
+    pub fn redeem_tokens(
+        &mut self,
+        min_tokens: BTreeMap<Pubkey, TokenAmount>,
+        lp_tokens_to_burn: TokenAmount,
+        lp_mint_supply: TokenAmount,
+    ) -> Result<RedeemResult> {
+        if lp_mint_supply.amount == 0 {
+            return Err(error!(err::arg(
+                "There are no lp tokens currently in supply."
+            )));
+        }
+
+        if lp_tokens_to_burn > lp_mint_supply {
+            return Err(error!(err::arg(
+                "The amount of lp tokens to burn cannot \
+                surpass current supply."
+            )));
+        }
+
+        if min_tokens.len() != self.dimension as usize {
+            return Err(error!(err::arg(
+                "Min tokens map does not match pool dimension"
+            )));
+        }
+
+        if self
+            .reserves()
+            .iter()
+            .any(|r| !min_tokens.contains_key(&r.mint))
+        {
+            return Err(error!(err::arg(
+                "Not all reserve mints are represented in the min tokens map"
+            )));
+        }
+
+        let weight = Decimal::from(lp_tokens_to_burn.amount)
+            .try_div(Decimal::from(lp_mint_supply.amount))?;
+
+        // Given a previous deposit of tokens, and provided that no swaps happen
+        // in between, if a user withdraws liquidity by burning the same amount
+        // of lp tokens it got from the deposit, the token amounts withdrawn
+        // from the pool will be essentially the same amounts that were
+        // deposited previously, for each given mint.
+        let tokens_to_redeem: BTreeMap<Pubkey, TokenAmount> = self
+            .reserves()
+            .iter()
+            .map(|r| {
+                Ok((
+                    r.mint,
+                    TokenAmount::new(
+                        Decimal::from(r.tokens.amount)
+                            .try_mul(weight)?
+                            .try_floor()?,
+                    ),
+                ))
+            })
+            .collect::<Result<_>>()?;
+
+        let is_any_redeem_token_below_min_threshold =
+            tokens_to_redeem.iter().any(|(mint, token)| {
+                let min_token = min_tokens
+                    .get(mint)
+                    .ok_or(AmmError::InvariantViolation)
+                    .unwrap();
+
+                token < min_token
+            });
+
+        if is_any_redeem_token_below_min_threshold {
+            return Err(error!(err::arg(
+                "The amount of tokens to be redeemed is below \
+                the min_tokens parameter for at least one of the reserves."
+            )));
+        }
+
+        // mutate the Pool reserve balances
+        for (mint, tokens) in &tokens_to_redeem {
+            let reserve =
+                self.reserves.iter_mut().find(|r| &r.mint == mint).ok_or(
+                    // we checked in the beginning of the method that all
+                    // mints are represented
+                    AmmError::InvariantViolation,
+                )?;
+
+            reserve.tokens.amount = reserve
+                .tokens
+                .amount
+                .checked_sub(tokens.amount)
+                .ok_or(AmmError::MathOverflow)?;
+        }
+
+        Ok(RedeemResult {
+            lp_tokens_to_burn,
+            tokens_to_redeem,
         })
     }
 
@@ -721,6 +833,410 @@ mod tests {
         // Assert that is error when not first deposit
         assert!(pool
             .deposit_tokens(max_tokens.clone(), TokenAmount::new(10))
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_redeem_when_min_tokens_are_zero() -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(10),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(100),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(250),
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(1_000);
+        let lp_tokens_to_burn = TokenAmount::new(100);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(0));
+        min_tokens.insert(mint2, TokenAmount::new(0));
+        min_tokens.insert(mint3, TokenAmount::new(0));
+
+        let redeem_result =
+            pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 10 - 1);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 100 - 10);
+
+        assert_eq!(pool.reserves[2].mint, mint3);
+        assert_eq!(pool.reserves[2].tokens.amount, 250 - 25);
+
+        // check that calculated tokens to redeem is correct
+        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
+        assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 1);
+        assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 10);
+        assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 25);
+
+        // check that calculated lp tokens to burn is correct which
+        // should be simply the amount given as a parameter to the method
+        assert_eq!(redeem_result.lp_tokens_to_burn.amount, 100);
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_redeem_when_min_tokens_match_tokens_to_redeem(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(10),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(100),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(250),
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(1_000);
+        let lp_tokens_to_burn = TokenAmount::new(100);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(1));
+        min_tokens.insert(mint2, TokenAmount::new(10));
+        min_tokens.insert(mint3, TokenAmount::new(25));
+
+        let redeem_result =
+            pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 10 - 1);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 100 - 10);
+
+        assert_eq!(pool.reserves[2].mint, mint3);
+        assert_eq!(pool.reserves[2].tokens.amount, 250 - 25);
+
+        // check that calculated tokens to redeem is correct
+        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
+        assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 1);
+        assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 10);
+        assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 25);
+
+        // check that calculated lp tokens to burn is correct which
+        // should be simply the amount given as a parameter to the method
+        assert_eq!(redeem_result.lp_tokens_to_burn.amount, 100);
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_redeem_after_token_deposit() -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut lp_mint_supply = TokenAmount::new(0);
+        let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        max_tokens.insert(mint1, TokenAmount::new(100));
+        max_tokens.insert(mint2, TokenAmount::new(100));
+        max_tokens.insert(mint3, TokenAmount::new(100));
+
+        let _tokens_to_deposit =
+            pool.deposit_tokens(max_tokens, lp_mint_supply)?;
+
+        lp_mint_supply = TokenAmount::new(100);
+        let lp_tokens_to_burn = TokenAmount::new(50);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(50));
+        min_tokens.insert(mint2, TokenAmount::new(50));
+        min_tokens.insert(mint3, TokenAmount::new(50));
+
+        let redeem_result =
+            pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 100 - 50);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 100 - 50);
+
+        assert_eq!(pool.reserves[2].mint, mint3);
+        assert_eq!(pool.reserves[2].tokens.amount, 100 - 50);
+
+        // check that calculated tokens to redeem is correct
+        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
+        assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 50);
+        assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 50);
+        assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 50);
+
+        // Second withdrawal
+        lp_mint_supply = TokenAmount::new(50);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(0));
+        min_tokens.insert(mint2, TokenAmount::new(0));
+        min_tokens.insert(mint3, TokenAmount::new(0));
+
+        let redeem_result =
+            pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 0);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 0);
+
+        assert_eq!(pool.reserves[2].mint, mint3);
+        assert_eq!(pool.reserves[2].tokens.amount, 0);
+
+        // check that calculated tokens to redeem is correct
+        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
+        assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 50);
+        assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 50);
+        assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 50);
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_tokens_to_redeem_when_min_tokens_threshold_reached() -> Result<()>
+    {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(10),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(100),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(250),
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(1_000);
+        let lp_tokens_to_burn = TokenAmount::new(100);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(1));
+        min_tokens.insert(mint2, TokenAmount::new(10));
+        min_tokens.insert(mint3, TokenAmount::new(26));
+
+        assert!(pool
+            .redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_tokens_to_redeem_when_missing_tokens_in_min_tokens_map(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+        let fake_mint = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(10),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(100),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(250),
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(1_000);
+        let lp_tokens_to_burn = TokenAmount::new(100);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(1));
+        min_tokens.insert(mint2, TokenAmount::new(10));
+        min_tokens.insert(fake_mint, TokenAmount::new(1));
+
+        assert!(pool
+            .redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_tokens_to_redeem_when_zero_lp_mint_supply() -> Result<()> {
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(0);
+        let lp_tokens_to_burn = TokenAmount::new(0);
+        let min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        assert!(pool
+            .redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_tokens_to_redeem_when_lp_tokens_to_burn_is_gt_than_supply(
+    ) -> Result<()> {
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(10);
+        let lp_tokens_to_burn = TokenAmount::new(100);
+        let min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        assert!(pool
+            .redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_tokens_to_redeem_when_min_tokens_map_len_diff_dimension(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(1_000);
+        let lp_tokens_to_burn = TokenAmount::new(100);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(1));
+        min_tokens.insert(mint2, TokenAmount::new(10));
+
+        assert!(pool
+            .redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)
             .is_err());
 
         Ok(())

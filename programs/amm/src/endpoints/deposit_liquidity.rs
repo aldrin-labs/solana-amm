@@ -100,7 +100,6 @@ pub fn handle<'info>(
         .collect::<BTreeMap<Pubkey, TokenAmount>>();
 
     // check that max_amount_tokens have the correct mint pubkeys
-
     accs.pool.check_amount_tokens_is_valid(&max_amount_tokens)?;
 
     // get current lp tokens supply
