@@ -284,7 +284,7 @@ impl Pool {
                                     lowest_total_price_to_reserve_total_price,
                                 )?
                                 // we ceil to prevent deposit of 0 tokens
-                                .try_ceil_u64()?,
+                                .try_ceil()?,
                         },
                     ))
                 })
@@ -394,32 +394,26 @@ impl Pool {
             Curve::Stable { amplifier, .. } => {
                 // need to recompute curve invariant, using Newton-Raphson
                 // approximation method
-                let token_reserves_amount: Vec<Decimal> = self
-                    .reserves()
-                    .iter()
-                    .map(|rs| Decimal::from(rs.tokens.amount))
-                    .collect();
+                let token_reserves_amount: Vec<_> =
+                    self.reserves().iter().map(|rs| rs.tokens).collect();
 
-                // this can happen on redeem, when all tokens are withdrawn
-                self.curve = if token_reserves_amount
+                let invariant = if token_reserves_amount
                     .iter()
-                    .any(|a| a == &Decimal::zero())
+                    .any(|tokens| tokens.amount == 0)
                 {
-                    Curve::Stable {
-                        amplifier,
-                        invariant: Decimal::zero().into(),
-                    }
+                    // this can happen on redeem, when all tokens are withdrawn
+                    Decimal::zero().into()
                 } else {
-                    let invariant: SDecimal =
-                        math::compute_stable_curve_invariant(
-                            &Decimal::from(amplifier),
-                            &token_reserves_amount,
-                        )?
-                        .into();
-                    Curve::Stable {
+                    math::stable_curve_invariant::compute(
                         amplifier,
-                        invariant,
-                    }
+                        &token_reserves_amount,
+                    )?
+                    .into()
+                };
+
+                self.curve = Curve::Stable {
+                    amplifier,
+                    invariant,
                 };
             }
         }
@@ -778,8 +772,8 @@ mod tests {
         };
 
         assert_eq!(
-            invariant,
-            SDecimal::from(Decimal::from_scaled_val(352805602632122973013))
+            Decimal::from(invariant),
+            Decimal::from_scaled_val(352805603000000000000)
         );
     }
 
