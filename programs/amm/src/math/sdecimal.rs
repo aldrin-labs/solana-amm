@@ -94,9 +94,9 @@ mod tests {
         let sdec = SDecimal::from(n);
         let dec = Decimal::from(sdec);
 
-        assert_eq!(dec.try_round_u64().unwrap(), n);
-        assert_eq!(dec.try_ceil_u64().unwrap(), n);
-        assert_eq!(dec.try_floor_u64().unwrap(), n);
+        assert_eq!(dec.try_round().unwrap(), n);
+        assert_eq!(dec.try_ceil().unwrap(), n);
+        assert_eq!(dec.try_floor().unwrap(), n);
     }
 
     #[test]

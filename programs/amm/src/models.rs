@@ -88,3 +88,9 @@ impl From<TokenAmount> for Decimal {
         Decimal::from(tokens.amount)
     }
 }
+
+impl From<u64> for TokenAmount {
+    fn from(amount: u64) -> Self {
+        TokenAmount { amount }
+    }
+}

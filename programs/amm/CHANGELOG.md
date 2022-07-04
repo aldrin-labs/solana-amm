@@ -6,6 +6,15 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 20022-07-04
+
+### Fixed
+
+- Adding caching to stable curve invariant calculation to avoid recalculation.
+- Since we use product of reserves and power, the stable curve invariant
+  calculation failed very quickly, rendering the algorithm virtually unusable.
+  We now use `LargeDecimal` as a workaround to the issue of math overflow.
+
 ## [0.4.1] - 20022-07-04
 
 ### Changed

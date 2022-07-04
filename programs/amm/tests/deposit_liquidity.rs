@@ -370,6 +370,41 @@ fn fails_if_user_does_not_own_token_account_wallets() {
 
 #[test]
 #[serial]
+fn initial_deposit_does_not_affect_subsequent_deposits_stable_curve(
+) -> Result<()> {
+    // in the previous version of AMM, if the first deposit was very small,
+    // then the subsequent deposits couldn't go too large because of overflow
+
+    let (mut tester, reserves) =
+        Tester::new_stable_curve(2, 2, Decimal::zero());
+
+    tester.deposit_liquidity(
+        reserves
+            .iter()
+            .map(|r| (r.mint, TokenAmount::new(1)))
+            .collect(),
+        &reserves,
+    )?;
+
+    tester.deposit_liquidity(
+        reserves
+            .iter()
+            // second deposit is huge
+            .map(|r| (r.mint, TokenAmount::new(500_000_000_000000)))
+            .collect(),
+        &reserves,
+    )?;
+
+    let pool = Pool::try_deserialize(&mut tester.pool.data.as_slice())?;
+    for reserve in pool.reserves() {
+        assert_eq!(reserve.tokens.amount, 500_000_000_000001);
+    }
+
+    Ok(())
+}
+
+#[test]
+#[serial]
 fn fails_if_multiple_vault_wallet_pairs_of_the_same_mint() -> Result<()> {
     let (mut tester, reserves) = Tester::new_const_prod(2);
     tester.vaults_wallets.extend_from_slice(&vec![
@@ -421,6 +456,47 @@ fn fails_if_multiple_vault_wallet_pair_mint_mismatches() -> Result<()> {
         .to_string();
     assert!(error.contains("InvalidAccountInput"));
 
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn initial_deposit_does_not_affect_subsequent_deposits_const_prod() -> Result<()>
+{
+    // in the previous version of AMM, if the first deposit was very small,
+    // then the subsequent deposits couldn't go too large because of overflow
+
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+
+    tester.deposit_liquidity(
+        vec![
+            (reserves[0].mint, TokenAmount::new(1)),
+            // 5 orders of magnitude
+            (reserves[1].mint, TokenAmount::new(100_000)),
+        ]
+        .into_iter()
+        .collect(),
+        &reserves,
+    )?;
+
+    tester.deposit_liquidity(
+        vec![
+            (reserves[0].mint, TokenAmount::new(100_000_000_000_000)),
+            // 5 orders of magnitude
+            (
+                reserves[1].mint,
+                TokenAmount::new(1_000_000_000_000_000_000),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        &reserves,
+    )?;
+
+    let pool = Pool::try_deserialize(&mut tester.pool.data.as_slice())?;
+    let reserves = pool.reserves();
+    assert_eq!(reserves[0].tokens.amount, 100_000_000_000_001);
+    assert_eq!(reserves[1].tokens.amount, 1_000_000_000_000_100_000);
     Ok(())
 }
 
@@ -553,7 +629,7 @@ impl Tester {
                     .pack(
                         spl::token_account(user.key)
                             .mint(mint)
-                            .amount(1_000_000_000),
+                            .amount(u64::MAX),
                     )
                     .owner(token::ID);
                 vec![vault, wallet].into_iter()
