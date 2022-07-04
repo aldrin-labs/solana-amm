@@ -9,6 +9,8 @@ pub enum AmmError {
     /// about the issue.
     #[msg("Provided account breaks some constraints, see logs for more info")]
     InvalidAccountInput,
+    /// Use this error via the [`arg`] function to provide more background
+    /// about the issue.
     #[msg("One of the provided input arguments is invalid")]
     InvalidArg,
     /// Use this error for program paths which should never be reached if the
@@ -19,13 +21,6 @@ pub enum AmmError {
     /// wrong token mints
     #[msg("Current mints are not available on current pool")]
     InvalidTokenMints,
-    /// Invalid specification of pool token vault and user token wallet
-    #[msg("Invalid specification of pool token vault and user token wallet")]
-    InvalidTokenVaultWalletSpecification,
-    /// Invalid account owner
-    #[msg("Invalid account owner, does not coincide with user")]
-    InvalidAccountOwner,
-    /// Invalid token amount to deposit
     #[msg("Invalid token amount to deposit")]
     InvalidTokenAmount,
 }

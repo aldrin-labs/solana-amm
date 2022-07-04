@@ -120,14 +120,15 @@ pub fn handle<'info>(
         let vault: &Account<'info, TokenAccount> = &vault_wallet[0];
         let user_wallet: &Account<'info, TokenAccount> = &vault_wallet[1];
 
-        // invalid if user token wallet mint key does not agree with pool token
-        // vault mint
         if vault.mint != user_wallet.mint {
-            return Err(error!(AmmError::InvalidTokenVaultWalletSpecification));
+            return Err(error!(err::acc(
+                "Each vault wallet pair must match in mint"
+            )));
         }
-        // invalid if passed user_wallet owner is not user
         if user_wallet.owner != accs.user.key() {
-            return Err(error!(AmmError::InvalidAccountOwner));
+            return Err(error!(err::acc(
+                "User must be authority over all wallets"
+            )));
         }
 
         // get tokens to add to the reserve

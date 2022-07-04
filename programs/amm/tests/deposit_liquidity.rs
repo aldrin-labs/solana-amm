@@ -37,10 +37,7 @@ fn makes_initial_deposit_into_const_prod_with_more_than_two_reserves(
     let (mut tester, reserves) = Tester::new_const_prod(3);
 
     tester.deposit_liquidity(
-        reserves
-            .iter()
-            .map(|r| (r.mint, TokenAmount::new(100)))
-            .collect(),
+        reserves_to_max_amount_tokens(&reserves, 100),
         &reserves,
     )?;
     Ok(())
@@ -53,10 +50,7 @@ fn makes_initial_deposit_into_stable_curve_with_two_reserves() -> Result<()> {
         Tester::new_stable_curve(2, 10, Decimal::default());
 
     tester.deposit_liquidity(
-        reserves
-            .iter()
-            .map(|r| (r.mint, TokenAmount::new(100)))
-            .collect(),
+        reserves_to_max_amount_tokens(&reserves, 100),
         &reserves,
     )?;
 
@@ -73,10 +67,7 @@ fn makes_several_deposits_into_const_prod_with_two_reserves() -> Result<()> {
         Tester::new_stable_curve(3, 10, Decimal::default());
 
     tester.deposit_liquidity(
-        reserves
-            .iter()
-            .map(|r| (r.mint, TokenAmount::new(100)))
-            .collect(),
+        reserves_to_max_amount_tokens(&reserves, 100),
         &reserves,
     )?;
 
@@ -302,10 +293,7 @@ fn pool_is_correctly_updated_stable_curve_case() -> Result<()> {
         Pool::try_deserialize(&mut tester.pool.data.as_slice())?;
 
     tester.deposit_liquidity(
-        reserves
-            .iter()
-            .map(|r| (r.mint, TokenAmount::new(100)))
-            .collect(),
+        reserves_to_max_amount_tokens(&reserves, 100),
         &reserves,
     )?;
 
@@ -378,6 +366,126 @@ fn fails_if_user_does_not_own_token_account_wallets() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("AnchorError"));
+}
+
+#[test]
+#[serial]
+fn fails_if_multiple_vault_wallet_pairs_of_the_same_mint() -> Result<()> {
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+    tester.vaults_wallets.extend_from_slice(&vec![
+        AccountInfoWrapper::new()
+            .pack(
+                spl::token_account(tester.pool_signer.key)
+                    .amount(100_000)
+                    .mint(reserves[0].mint),
+            )
+            .owner(token::ID),
+        AccountInfoWrapper::new()
+            .pack(
+                spl::token_account(tester.user.key)
+                    .amount(100_000)
+                    .mint(reserves[0].mint),
+            )
+            .owner(token::ID),
+    ]);
+
+    let error = tester
+        .deposit_liquidity(
+            reserves_to_max_amount_tokens(&reserves, 100),
+            &reserves,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn fails_if_multiple_vault_wallet_pair_mint_mismatches() -> Result<()> {
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+    // point second wallet to first vault mint
+    tester.vaults_wallets[3] = tester.vaults_wallets[3].clone().pack(
+        spl::token_account(tester.user.key)
+            .amount(100_000)
+            .mint(reserves[0].mint),
+    );
+
+    let error = tester
+        .deposit_liquidity(
+            reserves_to_max_amount_tokens(&reserves, 100),
+            &reserves,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn fails_if_user_is_not_authority_over_a_wallet() -> Result<()> {
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+    // make the second wallet be owned by a random pubkey
+    tester.vaults_wallets[3] = tester.vaults_wallets[3].clone().pack(
+        spl::token_account(Pubkey::new_unique())
+            .amount(100_000)
+            // this is a correct mint
+            .mint(reserves[1].mint),
+    );
+
+    let error = tester
+        .deposit_liquidity(
+            reserves_to_max_amount_tokens(&reserves, 100),
+            &reserves,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn fails_if_wrong_mint_pair_provided() -> Result<()> {
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+    let unknown_mint = Pubkey::new_unique();
+    tester.vaults_wallets[2] = tester.vaults_wallets[2].clone().pack(
+        spl::token_account(tester.pool_signer.key)
+            .amount(100_000)
+            .mint(unknown_mint),
+    );
+    tester.vaults_wallets[3] = tester.vaults_wallets[3].clone().pack(
+        spl::token_account(tester.user.key)
+            .amount(100_000)
+            .mint(unknown_mint),
+    );
+
+    let error = tester
+        .deposit_liquidity(
+            reserves_to_max_amount_tokens(&reserves, 100),
+            &reserves,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+// Creates input arg into the [`deposit_liquidity`] endpoint with all maxes
+// being the same.
+fn reserves_to_max_amount_tokens(
+    reserves: &[Reserve],
+    amounts: u64,
+) -> BTreeMap<Pubkey, TokenAmount> {
+    reserves
+        .iter()
+        .map(|r| (r.mint, TokenAmount::new(amounts)))
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
