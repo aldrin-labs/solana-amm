@@ -1,6 +1,6 @@
 [package]
 name = "amm"
-version = "0.4.3"
+version = "0.4.4"
 description = "Deposit liquidity to earn fees and swap between mints"
 edition = "2021"
 
@@ -19,7 +19,7 @@ no-log-ix-name = []
 [dependencies]
 anchor-lang = "0.24.2"
 anchor-spl = "0.24.2"
-decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.3.1" }
+decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.3.3" }
 
 [dev-dependencies]
 anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.3.0" }
