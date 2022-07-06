@@ -6,7 +6,7 @@ import { payer, provider, sleep } from "../../helpers";
 import { BN } from "@project-serum/anchor";
 
 export function test() {
-  describe.only("deposit_liquidity", () => {
+  describe("deposit_liquidity", () => {
     const user = Keypair.generate();
 
     it("deposits liquidity on constant product curve", async () => {

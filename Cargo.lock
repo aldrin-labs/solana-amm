@@ -227,8 +227,8 @@ dependencies = [
 
 [[package]]
 name = "anchortest"
-version = "0.2.4"
-source = "git+https://github.com/aldrin-exchange/solana-anchortest?tag=0.2.4#00ecdc8caddf0dcf0324860445756985900c362b"
+version = "0.3.0"
+source = "git+https://github.com/aldrin-exchange/solana-anchortest?tag=0.3.0#20db88f4499d939491e96ca96a05a7402e857e86"
 dependencies = [
  "anchor-lang",
  "anchor-spl",

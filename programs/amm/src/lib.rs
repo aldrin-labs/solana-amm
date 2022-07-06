@@ -57,4 +57,16 @@ pub mod amm {
     ) -> Result<()> {
         endpoints::deposit_liquidity::handle(ctx, max_amount_tokens)
     }
+
+    pub fn redeem_liquidity<'info>(
+        ctx: Context<'_, '_, '_, 'info, RedeemLiquidity<'info>>,
+        lp_tokens_to_burn: TokenAmount,
+        min_amount_tokens: Vec<RedeemMintTokens>,
+    ) -> Result<()> {
+        endpoints::redeem_liquidity::handle(
+            ctx,
+            lp_tokens_to_burn,
+            min_amount_tokens,
+        )
+    }
 }

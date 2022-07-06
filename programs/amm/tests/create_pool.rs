@@ -56,7 +56,7 @@ fn with_three_reserves() -> Result<()> {
     let mut test = Tester::default();
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
-            .pack(spl::token_account(test.pool_signer.key))
+            .pack(spl::token_account::new(test.pool_signer.key))
             .owner(token::ID)
     })
     .take(3)
@@ -91,7 +91,7 @@ fn with_four_reserves() -> Result<()> {
     let mut test = Tester::default();
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
-            .pack(spl::token_account(test.pool_signer.key))
+            .pack(spl::token_account::new(test.pool_signer.key))
             .owner(token::ID)
     })
     .take(4)
@@ -125,7 +125,7 @@ fn fails_if_more_than_four_reserves() -> Result<()> {
     let mut test = Tester::default();
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
-            .pack(spl::token_account(test.pool_signer.key))
+            .pack(spl::token_account::new(test.pool_signer.key))
             .owner(token::ID)
     })
     .take(5)
@@ -146,7 +146,7 @@ fn fails_if_less_than_two_reserves() -> Result<()> {
     let mut test = Tester::default();
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
-            .pack(spl::token_account(test.pool_signer.key))
+            .pack(spl::token_account::new(test.pool_signer.key))
             .owner(token::ID)
     })
     .take(1)
@@ -200,7 +200,7 @@ fn fails_on_duplicate_reserve_mint() -> Result<()> {
     let mint = Pubkey::new_unique();
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
-            .pack(spl::token_account(test.pool_signer.key).mint(mint))
+            .pack(spl::token_account::new(test.pool_signer.key).mint(mint))
             .owner(token::ID)
     })
     .take(2)
@@ -222,7 +222,7 @@ fn fails_if_vault_has_close_authority() -> Result<()> {
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
             .pack({
-                let mut vault = spl::token_account(test.pool_signer.key);
+                let mut vault = spl::token_account::new(test.pool_signer.key);
                 vault.close_authority = COption::Some(Pubkey::new_unique());
 
                 vault
@@ -248,7 +248,7 @@ fn fails_if_vault_has_delegate() -> Result<()> {
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
             .pack({
-                let mut vault = spl::token_account(test.pool_signer.key);
+                let mut vault = spl::token_account::new(test.pool_signer.key);
                 vault.delegate = COption::Some(Pubkey::new_unique());
 
                 vault
@@ -274,7 +274,7 @@ fn fails_if_vault_owner_is_not_pool_signer() -> Result<()> {
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
             .pack({
-                let mut vault = spl::token_account(test.pool_signer.key);
+                let mut vault = spl::token_account::new(test.pool_signer.key);
                 vault.owner = Pubkey::new_unique();
 
                 vault
@@ -300,7 +300,7 @@ fn fails_if_vault_is_frozen() -> Result<()> {
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
             .pack({
-                let mut vault = spl::token_account(test.pool_signer.key);
+                let mut vault = spl::token_account::new(test.pool_signer.key);
                 vault.state = AccountState::Frozen;
 
                 vault
@@ -325,7 +325,7 @@ fn fails_if_vaults_not_empty_but_lp_mint_supply_is_zero() -> Result<()> {
     let mut test = Tester::default();
     test.vaults = iter::repeat_with(|| {
         AccountInfoWrapper::new()
-            .pack(spl::token_account(test.pool_signer.key).amount(10))
+            .pack(spl::token_account::new(test.pool_signer.key).amount(10))
             .owner(token::ID)
     })
     .take(2)
@@ -345,7 +345,7 @@ fn fails_if_vaults_not_empty_but_lp_mint_supply_is_zero() -> Result<()> {
 fn fails_if_vaults_empty_but_lp_mint_supply_is_not_zero() -> Result<()> {
     let mut test = Tester::default();
     test.lp_mint.data = AccountInfoWrapper::new()
-        .pack(spl::mint(test.pool_signer.key).supply(10))
+        .pack(spl::mint::new(test.pool_signer.key).supply(10))
         .data;
 
     assert!(test
@@ -384,7 +384,7 @@ impl Default for Tester {
             &[Pool::SIGNER_PDA_PREFIX, pool.key.as_ref()],
         );
         let lp_mint = AccountInfoWrapper::new()
-            .pack(spl::mint(pool_signer.key))
+            .pack(spl::mint::new(pool_signer.key))
             .owner(token::ID);
         let program_toll_authority = Pubkey::new_unique();
         let program_toll = AccountInfoWrapper::pda(
@@ -397,14 +397,17 @@ impl Default for Tester {
         })
         .owner(amm::ID);
         let program_toll_wallet = AccountInfoWrapper::new()
-            .pack(spl::token_account(program_toll_authority).mint(lp_mint.key))
+            .pack(
+                spl::token_account::new(program_toll_authority)
+                    .mint(lp_mint.key),
+            )
             .owner(token::ID);
         let token_program = AccountInfoWrapper::with_key(token::ID).program();
         let system_program =
             AccountInfoWrapper::with_key(system_program::ID).program();
         let vaults = iter::repeat_with(|| {
             AccountInfoWrapper::new()
-                .pack(spl::token_account(pool_signer.key))
+                .pack(spl::token_account::new(pool_signer.key))
                 .owner(token::ID)
         })
         .take(2)

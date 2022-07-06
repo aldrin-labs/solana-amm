@@ -22,7 +22,7 @@ anchor-spl = "0.24.2"
 decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.3.1" }
 
 [dev-dependencies]
-anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.2.4" }
+anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.3.0" }
 criterion = "0.3"
 pretty_assertions = "1.2"
 rand = "0.8"
