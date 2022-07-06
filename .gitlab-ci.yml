@@ -19,6 +19,11 @@ unit:
     key: "unit-cache-${CI_COMMIT_BRANCH}"
     paths:
       - target
+  # manual trigger on feature branches to save CI minutes
+  rules:
+    - if: '$CI_COMMIT_BRANCH != "develop" && $CI_COMMIT_BRANCH != "main"'
+      when: manual
+    - when: always
   script:
     - cargo fmt --check
     - cargo clippy -- -D warnings
@@ -41,6 +46,11 @@ program:
       - target/deploy/amm.so
       - target/idl/amm.json
       - target/types/amm.ts
+  # manual trigger on feature branches to save CI minutes
+  rules:
+    - if: '$CI_COMMIT_BRANCH != "develop" && $CI_COMMIT_BRANCH != "main"'
+      when: manual
+    - when: always
   before_script:
     - yarn
   script:
