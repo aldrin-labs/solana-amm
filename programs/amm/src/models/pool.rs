@@ -1,5 +1,7 @@
 //! TODO: docs
 
+use crate::math::helpers::*;
+use crate::math::swap_equation::*;
 use crate::prelude::*;
 use std::collections::BTreeMap;
 use std::mem;
@@ -28,11 +30,7 @@ pub struct Pool {
 )]
 pub enum Curve {
     ConstProd,
-    /// TODO: Think of a better name for `invariant`
-    Stable {
-        amplifier: u64,
-        invariant: SDecimal,
-    },
+    Stable { amplifier: u64, invariant: SDecimal },
 }
 
 #[derive(
@@ -137,6 +135,14 @@ impl Pool {
     /// a slice of length 2 if there are only two reserves, etc.
     pub fn reserves(&self) -> &[Reserve] {
         &self.reserves[..self.dimension as usize]
+    }
+
+    pub fn reserves_mut(&mut self) -> &mut [Reserve] {
+        &mut self.reserves[..self.dimension as usize]
+    }
+
+    pub fn reserve_mut(&mut self, mint: Pubkey) -> Option<&mut Reserve> {
+        self.reserves.iter_mut().find(|r| r.mint == mint)
     }
 
     /// This method calculates the tokens to deposit out of a [`BTreeMap`] of
@@ -564,6 +570,134 @@ impl Pool {
         }
 
         Ok(())
+    }
+
+    /// Given the current state of the pool, calculates how many tokens would we
+    /// receive if we want to swap given amount of base tokens into quote
+    /// tokens. Then deducts this amount from the quote reserves, and adds the
+    /// amount to swap to the base reserve.
+    ///
+    /// Returns how many tokens were given for the input `tokens_to_swap`.
+    pub fn swap(
+        &mut self,
+        base_mint: Pubkey,
+        tokens_to_swap: TokenAmount,
+        quote_mint: Pubkey,
+    ) -> Result<TokenAmount> {
+        let receive_tokens =
+            self.calculate_swap(base_mint, tokens_to_swap, quote_mint)?;
+
+        // the calc method asserts that the base and quote mint refer to an
+        // actual reserve
+        let base_reserve = self.reserve_mut(base_mint).unwrap();
+        base_reserve.tokens = TokenAmount::new(
+            base_reserve.tokens.amount + tokens_to_swap.amount,
+        );
+        let quote_reserve = self.reserve_mut(quote_mint).unwrap();
+        quote_reserve.tokens = TokenAmount::new(
+            quote_reserve.tokens.amount - receive_tokens.amount,
+        );
+
+        Ok(receive_tokens)
+    }
+
+    /// Given the current state of the pool, how many tokens would we receive
+    /// if we want to swap given amount of base tokens into quote tokens.
+    fn calculate_swap(
+        &self,
+        base_mint: Pubkey,
+        tokens_to_swap: TokenAmount,
+        quote_mint: Pubkey,
+    ) -> Result<TokenAmount> {
+        let reserves: BTreeMap<_, _> =
+            self.reserves().iter().map(|r| (r.mint, r.tokens)).collect();
+
+        if reserves.values().any(|v| v.amount == 0) {
+            msg!("Need to provide positive token reserves deposits");
+            return Err(error!(AmmError::InvalidArg));
+        }
+
+        if !reserves.contains_key(&base_mint) {
+            msg!("Provided base token mint is invalid");
+            return Err(error!(AmmError::InvalidArg));
+        }
+
+        if !reserves.contains_key(&quote_mint) {
+            msg!("Provided quote token mint is invalid");
+            return Err(error!(AmmError::InvalidArg));
+        }
+
+        // checks if amount of base token to be swapped fits within
+        // current pool liquidity. It is important we don't allow
+        // user to swap the total number of tokens in the pool
+        if tokens_to_swap >= *reserves.get(&base_mint).unwrap() {
+            msg!(
+                "The user tries to swap the total amount of a single
+                 token deposit within the pool"
+            );
+            return Err(error!(AmmError::InvalidArg));
+        }
+
+        let non_quote_token_balances_after_swap: Vec<LargeDecimal> = reserves
+            .iter()
+            // we filter out the quote mint value
+            .filter(|(mint, _)| **mint != quote_mint)
+            .map(|(mint, tokens)| {
+                LargeDecimal::from(if *mint == base_mint {
+                    // update the amount of base token deposit
+                    // notice that this calculation does not underflow
+                    // because we checked above that
+                    // tokens_to_swap < current_deposit
+                    tokens.amount - tokens_to_swap.amount
+                } else {
+                    tokens.amount
+                })
+            })
+            .collect();
+
+        let product = fold_product(&non_quote_token_balances_after_swap)?;
+
+        let quote_token_balance_after_swap = match self.curve {
+            Curve::ConstProd => {
+                let tokens_deposits_before_swap: Vec<LargeDecimal> = reserves
+                    .values()
+                    .map(|v| LargeDecimal::from(v.amount))
+                    .collect();
+
+                let k = fold_product(&tokens_deposits_before_swap)?;
+                k.try_div(product)?
+            }
+            Curve::Stable {
+                amplifier,
+                invariant,
+            } => {
+                let amp = LargeDecimal::from(amplifier);
+                let d: Decimal = invariant.into();
+                let d: LargeDecimal = TryFrom::try_from(d)?;
+                let num_reserves = reserves.len() as u64;
+
+                // we shall need to compute the sum of all token deposits except
+                // for the quote
+                let sum = fold_sum(&non_quote_token_balances_after_swap)?;
+
+                compute_positive_root_quadratic_polynomial(
+                    num_reserves,
+                    &amp,
+                    &d,
+                    sum,
+                    product,
+                )?
+            }
+        };
+
+        let tokens_to_receive = compute_delta_quote_token_amount(
+            quote_token_balance_after_swap,
+            reserves,
+            quote_mint,
+        )
+        .and_then(|t| t.try_floor())?;
+
+        Ok(tokens_to_receive.into())
     }
 }
 
@@ -1400,5 +1534,287 @@ mod tests {
         ]);
 
         pool.check_amount_tokens_is_valid(&amount_tokens).unwrap();
+    }
+
+    #[test]
+    fn swap_fails_if_quote_mint_is_invalid() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let pool = Pool {
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        assert!(pool
+            .calculate_swap(base_mint, tokens_to_swap, Pubkey::new_unique(),)
+            .unwrap_err()
+            .to_string()
+            .contains("InvalidArg"));
+    }
+
+    #[test]
+    fn swap_fails_if_base_mint_is_invalid() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let pool = Pool {
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        assert!(pool
+            .calculate_swap(Pubkey::new_unique(), tokens_to_swap, quote_mint)
+            .unwrap_err()
+            .to_string()
+            .contains("InvalidArg"));
+    }
+
+    #[test]
+    fn swap_fails_if_at_least_one_reserve_deposit_is_zero() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let pool = Pool {
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 0 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        assert!(pool
+            .calculate_swap(base_mint, tokens_to_swap, quote_mint)
+            .unwrap_err()
+            .to_string()
+            .contains("InvalidArg"));
+    }
+
+    #[test]
+    fn swap_fails_if_user_tries_to_swap_totality_single_token_deposit() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let pool = Pool {
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(100);
+
+        assert!(pool
+            .calculate_swap(base_mint, tokens_to_swap, quote_mint)
+            .unwrap_err()
+            .to_string()
+            .contains("InvalidArg"));
+    }
+
+    #[test]
+    fn works_if_constant_product_curve() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+
+        let pool = Pool {
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        assert_eq!(
+            pool.calculate_swap(base_mint, tokens_to_swap, quote_mint)
+                .unwrap(),
+            10_u64.into()
+        );
+    }
+
+    #[test]
+    fn works_if_constant_product_curve_with_three_reserves() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let other_mint = Pubkey::new_unique();
+
+        let pool = Pool {
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 50 },
+                    mint: other_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        assert_eq!(
+            pool.calculate_swap(base_mint, tokens_to_swap, quote_mint)
+                .unwrap(),
+            10_u64.into()
+        );
+    }
+
+    #[test]
+    fn works_if_stable_swap_curve() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+
+        let curve = Curve::Stable {
+            amplifier: 10,
+            invariant: 110_u64.into(),
+        };
+        let pool = Pool {
+            curve,
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount { amount: 10 },
+                    mint: quote_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount { amount: 100 },
+                    mint: base_mint,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        assert_eq!(
+            pool.calculate_swap(base_mint, tokens_to_swap, quote_mint)
+                .unwrap(),
+            50.into()
+        );
+    }
+
+    #[test]
+    fn stable_swap_curve_works_for_high_amounts() {
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+
+        let tokens_to_swap = TokenAmount::new(50);
+
+        for tokens in [
+            TokenAmount::new(100),
+            TokenAmount::new(1000),
+            TokenAmount::new(100_000),
+            TokenAmount::new(1_000_000),
+            TokenAmount::new(100_000_000),
+            TokenAmount::new(1_000_000_000),
+            TokenAmount::new(10_000_000_000),
+            TokenAmount::new(100_000_000_000),
+        ] {
+            let curve: Curve = Curve::Stable {
+                amplifier: 10,
+                invariant: (2 * tokens.amount).into(),
+            };
+            let pool = Pool {
+                curve,
+                dimension: 2,
+                reserves: [
+                    Reserve {
+                        tokens,
+                        mint: base_mint,
+                        vault: Pubkey::new_unique(),
+                    },
+                    Reserve {
+                        tokens,
+                        mint: quote_mint,
+                        vault: Pubkey::new_unique(),
+                    },
+                    Reserve::default(),
+                    Reserve::default(),
+                ],
+                ..Default::default()
+            };
+            pool.calculate_swap(base_mint, tokens_to_swap, quote_mint)
+                .unwrap();
+        }
     }
 }
