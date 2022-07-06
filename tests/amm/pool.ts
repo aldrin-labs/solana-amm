@@ -22,7 +22,18 @@ export interface DepositLiquidityArgs {
   poolSignerPda: PublicKey;
   lpMint: PublicKey;
   lpTokenWallet: PublicKey;
-  maxAmountTokens: { mint: PublicKey, tokens: { amount: BN } }[],
+  maxAmountTokens: { mint: PublicKey; tokens: { amount: BN } }[];
+  vaultsAndWallets: AccountMeta[];
+}
+
+export interface RedeemLiquidityArgs {
+  user: Keypair;
+  pool: PublicKey;
+  poolSigner: PublicKey;
+  lpMint: PublicKey;
+  lpTokenWallet: PublicKey;
+  minAmountTokens: { mint: PublicKey; tokens: { amount: BN } }[];
+  lpTokensToBurn: number;
   vaultsAndWallets: AccountMeta[];
 }
 
@@ -218,6 +229,107 @@ export class Pool {
         user: user.publicKey,
         pool,
         poolSignerPda,
+        lpMint,
+        lpTokenWallet,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .remainingAccounts(vaultsAndWallets)
+      .signers([user])
+      .rpc();
+  }
+
+  public async redeemLiquidity(
+    input: Partial<RedeemLiquidityArgs>
+  ): Promise<void> {
+    const user = input.user ?? Keypair.generate();
+    const pool = input.pool ?? this.id.publicKey;
+    const poolSigner = input.poolSigner ?? this.signerPda();
+    const lpMint = input.lpMint ?? (await this.fetch()).mint;
+    const lpTokenWallet =
+      input.lpTokenWallet ??
+      (await createAccount(provider.connection, payer, lpMint, user.publicKey));
+
+    const defineMinAmountTokens = async () => {
+      const fetchPool = await this.fetch();
+      const mint1 = fetchPool.reserves[0].mint;
+      const mint2 = fetchPool.reserves[1].mint;
+
+      const t: [PublicKey, { amount: BN }][] = [];
+      t.push([mint1, { amount: new BN(0) }]);
+      t.push([mint2, { amount: new BN(0) }]);
+
+      return t;
+    };
+
+    const minAmountTokens =
+      input.minAmountTokens ?? (await defineMinAmountTokens());
+
+    const lpTokensToBurn = input.lpTokensToBurn ?? 100;
+
+    const getVaultsAndWallets = async () => {
+      const fetchPool = await this.fetch();
+
+      const firstVault = fetchPool.reserves[0].vault;
+      const secondVault = fetchPool.reserves[1].vault;
+
+      const firstMint = fetchPool.reserves[0].mint;
+      const secondMint = fetchPool.reserves[1].mint;
+
+      const firstVaultAccount = await getAccount(
+        provider.connection,
+        firstVault
+      );
+      const secondVaultAccount = await getAccount(
+        provider.connection,
+        secondVault
+      );
+
+      const firstWalletAccount = await createAccount(
+        provider.connection,
+        payer,
+        firstMint,
+        user.publicKey
+      );
+      const secondWalletAccount = await createAccount(
+        provider.connection,
+        payer,
+        secondMint,
+        user.publicKey
+      );
+
+      return [
+        {
+          isSigner: false,
+          isWritable: true,
+          pubkey: firstVaultAccount.address,
+        },
+        {
+          isSigner: false,
+          isWritable: true,
+          pubkey: firstWalletAccount,
+        },
+        {
+          isSigner: false,
+          isWritable: true,
+          pubkey: secondVaultAccount.address,
+        },
+        {
+          isSigner: false,
+          isWritable: true,
+          pubkey: secondWalletAccount,
+        },
+      ];
+    };
+
+    const vaultsAndWallets =
+      input.vaultsAndWallets ?? (await getVaultsAndWallets());
+
+    await amm.methods
+      .redeemLiquidity({ amount: new BN(lpTokensToBurn) }, minAmountTokens)
+      .accounts({
+        user: user.publicKey,
+        pool,
+        poolSigner,
         lpMint,
         lpTokenWallet,
         tokenProgram: TOKEN_PROGRAM_ID,

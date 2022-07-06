@@ -19,10 +19,12 @@ pub enum AmmError {
     InvariantViolation,
     /// Use this error whenever trying to interact with a pool, but providing
     /// wrong token mints
-    #[msg("Current mints are not available on current pool")]
+    #[msg("Provided mints are not available on the pool")]
     InvalidTokenMints,
     #[msg("Invalid token amount to deposit")]
     InvalidTokenAmount,
+    #[msg("Invalid lp token amount to burn")]
+    InvalidLpTokenAmount,
 }
 
 pub fn acc(msg: impl Display) -> AmmError {

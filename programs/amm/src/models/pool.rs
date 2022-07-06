@@ -66,6 +66,21 @@ pub struct DepositMintTokens {
     pub tokens: TokenAmount,
 }
 
+#[derive(
+    AnchorDeserialize,
+    AnchorSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+)]
+pub struct RedeemMintTokens {
+    pub mint: Pubkey,
+    pub tokens: TokenAmount,
+}
+
 #[derive(Debug, Eq, PartialEq, Default)]
 pub struct DepositResult {
     pub lp_tokens_to_distribute: TokenAmount,
@@ -331,20 +346,20 @@ impl Pool {
     /// computed tokens to be redeemed are above the min amounts. If this last
     /// condition is not met, the method will return an error.
     ///
-    /// This method returns [`RedeemResult`] with the actual amount of tokens
-    /// to redeem along with the amount of lp tokens to be burned.
+    /// This method returns map with the actual amount of tokens to redeem.
     pub fn redeem_tokens(
         &mut self,
         min_tokens: BTreeMap<Pubkey, TokenAmount>,
         lp_tokens_to_burn: TokenAmount,
         lp_mint_supply: TokenAmount,
-    ) -> Result<RedeemResult> {
+    ) -> Result<BTreeMap<Pubkey, TokenAmount>> {
         if lp_mint_supply.amount == 0 {
             return Err(error!(err::arg(
                 "There are no lp tokens currently in supply."
             )));
         }
 
+        // TODO: remove this constraint as it is checked before
         if lp_tokens_to_burn > lp_mint_supply {
             return Err(error!(err::arg(
                 "The amount of lp tokens to burn cannot \
@@ -354,7 +369,7 @@ impl Pool {
 
         if min_tokens.len() != self.dimension as usize {
             return Err(error!(err::arg(
-                "Min tokens map does not match pool dimension"
+                "Length of min tokens map does not match pool dimension"
             )));
         }
 
@@ -424,10 +439,7 @@ impl Pool {
                 .ok_or(AmmError::MathOverflow)?;
         }
 
-        Ok(RedeemResult {
-            lp_tokens_to_burn,
-            tokens_to_redeem,
-        })
+        Ok(tokens_to_redeem)
     }
 
     /// This method will return a [`BTreeMap`] with all the reserve token prices
@@ -880,7 +892,7 @@ mod tests {
         min_tokens.insert(mint2, TokenAmount::new(0));
         min_tokens.insert(mint3, TokenAmount::new(0));
 
-        let redeem_result =
+        let tokens_to_redeem =
             pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
 
         // Check the pool was currectly updated
@@ -894,14 +906,9 @@ mod tests {
         assert_eq!(pool.reserves[2].tokens.amount, 250 - 25);
 
         // check that calculated tokens to redeem is correct
-        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
         assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 1);
         assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 10);
         assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 25);
-
-        // check that calculated lp tokens to burn is correct which
-        // should be simply the amount given as a parameter to the method
-        assert_eq!(redeem_result.lp_tokens_to_burn.amount, 100);
 
         Ok(())
     }
@@ -949,7 +956,7 @@ mod tests {
         min_tokens.insert(mint2, TokenAmount::new(10));
         min_tokens.insert(mint3, TokenAmount::new(25));
 
-        let redeem_result =
+        let tokens_to_redeem =
             pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
 
         // Check the pool was currectly updated
@@ -963,14 +970,9 @@ mod tests {
         assert_eq!(pool.reserves[2].tokens.amount, 250 - 25);
 
         // check that calculated tokens to redeem is correct
-        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
         assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 1);
         assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 10);
         assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 25);
-
-        // check that calculated lp tokens to burn is correct which
-        // should be simply the amount given as a parameter to the method
-        assert_eq!(redeem_result.lp_tokens_to_burn.amount, 100);
 
         Ok(())
     }
@@ -1016,8 +1018,7 @@ mod tests {
         max_tokens.insert(mint2, TokenAmount::new(100));
         max_tokens.insert(mint3, TokenAmount::new(100));
 
-        let _tokens_to_deposit =
-            pool.deposit_tokens(max_tokens, lp_mint_supply)?;
+        pool.deposit_tokens(max_tokens, lp_mint_supply)?;
 
         lp_mint_supply = TokenAmount::new(100);
         let lp_tokens_to_burn = TokenAmount::new(50);
@@ -1027,7 +1028,7 @@ mod tests {
         min_tokens.insert(mint2, TokenAmount::new(50));
         min_tokens.insert(mint3, TokenAmount::new(50));
 
-        let redeem_result =
+        let tokens_to_redeem =
             pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
 
         // Check the pool was currectly updated
@@ -1041,7 +1042,6 @@ mod tests {
         assert_eq!(pool.reserves[2].tokens.amount, 100 - 50);
 
         // check that calculated tokens to redeem is correct
-        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
         assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 50);
         assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 50);
         assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 50);
@@ -1054,7 +1054,7 @@ mod tests {
         min_tokens.insert(mint2, TokenAmount::new(0));
         min_tokens.insert(mint3, TokenAmount::new(0));
 
-        let redeem_result =
+        let tokens_to_redeem =
             pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
 
         // Check the pool was currectly updated
@@ -1068,7 +1068,6 @@ mod tests {
         assert_eq!(pool.reserves[2].tokens.amount, 0);
 
         // check that calculated tokens to redeem is correct
-        let tokens_to_redeem = &redeem_result.tokens_to_redeem;
         assert_eq!(tokens_to_redeem.get(&mint1).unwrap().amount, 50);
         assert_eq!(tokens_to_redeem.get(&mint2).unwrap().amount, 50);
         assert_eq!(tokens_to_redeem.get(&mint3).unwrap().amount, 50);
