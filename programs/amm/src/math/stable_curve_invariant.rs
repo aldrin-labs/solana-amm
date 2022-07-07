@@ -4,6 +4,7 @@
 //! https://en.wikipedia.org/wiki/Newton%27s_method
 
 use crate::prelude::*;
+use decimal::AlmostEq;
 
 // The method should converge within few iterations, due to the fact
 // we are approximating positive root from a well positioned first
@@ -106,11 +107,11 @@ impl StableCurveInvariant {
             // applying Newton method to it will result in getting x again,
             // and the reciprocal statement holds true, so it is an equivalence.
             // Thus, the following checks are sufficient to guarantee
-            // full logic coverage.
+            // full logic coverage
             if prev_val <= new_val {
-                let is_val_root_stable_poly = self
-                    .get_stable_swap_polynomial(&prev_val)?
-                    == LargeDecimal::zero();
+                let poly_val = self.get_stable_swap_polynomial(&prev_val)?;
+                let is_val_root_stable_poly =
+                    poly_val.almost_eq(&LargeDecimal::zero()); // up to three decimal places precision
 
                 if is_val_root_stable_poly {
                     return Ok(prev_val);
@@ -121,7 +122,11 @@ impl StableCurveInvariant {
                     // mathematical assumptions
                     msg!(
                         "Invalid mathematical assumption: \
-                        previous value cannot be less or equal to new value"
+                        previous value {} cannot be less or equal to current
+                        value {} and polynomial value {} different than zero",
+                        prev_val,
+                        new_val,
+                        poly_val
                     );
                     return Err(error!(AmmError::InvariantViolation));
                 }
@@ -512,5 +517,24 @@ mod tests {
         let result = compute(amp, &token_reserves_amount).unwrap();
 
         assert_eq!(result, Decimal::from_scaled_val(352805603000000000000));
+    }
+
+    #[test]
+    fn should_successful_approximation_zeros_test() {
+        let amp = 10u64;
+
+        let token_reserves_amount: Vec<TokenAmount> = vec![
+            TokenAmount {
+                amount: 20000000000,
+            },
+            TokenAmount {
+                amount: 19989000000,
+            },
+            TokenAmount {
+                amount: 20002000000,
+            },
+        ];
+
+        assert!(compute(amp, &token_reserves_amount).is_ok());
     }
 }
