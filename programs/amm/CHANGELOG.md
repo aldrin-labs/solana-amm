@@ -6,6 +6,18 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.4.5] 2022-07-07
+
+### Fixed
+
+- Review logic of approximation within the Newton-Raphson logic. Due to
+  numerical instability and lack of precision, our approximations to root values
+  don't zero out the stable swap polynomial (even though, it should be
+  sufficiently close to 0, around 1e-4 magnitude precision).
+  For that reason, we loose our checking and allow that a certain value `x` to
+  be considered as a root in case of `SSP(x) < 1e-3`.
+
 ## [0.4.4] 2022-07-06
 
 - Added logic to compute the amount of tokens to obtain after a `swap`
@@ -15,7 +27,9 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 
 ### Added
 
-- Added method `redeem_tokens` to struct `Pool` which contains the logic to alter the `Pool` state when reserve tokens are redeemed by liquidity providers.
+- Added method `redeem_tokens` to struct `Pool` which contains the logic to
+  alter the `Pool` state when reserve tokens are redeemed by liquidity
+  providers.
 
 ## [0.4.2] - 20022-07-04
 
