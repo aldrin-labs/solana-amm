@@ -725,16 +725,8 @@ mod tests {
                     mint: mint2,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -776,11 +768,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -843,11 +831,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -909,11 +893,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -959,11 +939,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1010,11 +986,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1074,11 +1046,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1137,11 +1105,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1235,16 +1199,8 @@ mod tests {
                     mint: mint2,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1299,16 +1255,8 @@ mod tests {
                     mint: mint2,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1373,16 +1321,8 @@ mod tests {
                     mint: mint2,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1421,16 +1361,8 @@ mod tests {
                     mint: mint2,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1488,11 +1420,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1553,11 +1481,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1604,11 +1528,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount::new(0),
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             ..Default::default()
         };
@@ -1832,11 +1752,7 @@ mod tests {
                     mint: mint3,
                     vault: Pubkey::default(),
                 },
-                Reserve {
-                    tokens: TokenAmount { amount: 0 },
-                    mint: Pubkey::default(),
-                    vault: Pubkey::default(),
-                },
+                Reserve::default(),
             ],
             curve: Curve::Stable {
                 amplifier: 10_u64,
@@ -2134,5 +2050,117 @@ mod tests {
             pool.calculate_swap(base_mint, tokens_to_swap, quote_mint)
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_redeem_when_min_tokens_input_is_unbalanced(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_500_000),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_500_000),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(18_446_744_073_709_500_000);
+        let lp_tokens_to_burn = TokenAmount::new(18_446_744_073_709_500_000);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(10_446_744_073_709_500_000));
+        min_tokens.insert(mint2, TokenAmount::new(1));
+
+        let tokens_to_redeem =
+            pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 0);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 0);
+
+        // check that calculated tokens to deposit is correct
+        assert_eq!(
+            tokens_to_redeem.get(&mint1).unwrap().amount,
+            18_446_744_073_709_500_000
+        );
+        assert_eq!(
+            tokens_to_redeem.get(&mint2).unwrap().amount,
+            18_446_744_073_709_500_000
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_redeem_when_min_tokens_inputs_are_large(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_500_000),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_500_000),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve::default(),
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        let lp_mint_supply = TokenAmount::new(18_446_744_073_709_500_000);
+        let lp_tokens_to_burn = TokenAmount::new(18_446_744_073_709_500_000);
+        let mut min_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+
+        min_tokens.insert(mint1, TokenAmount::new(18_446_744_073_709_500_000));
+        min_tokens.insert(mint2, TokenAmount::new(18_446_744_073_709_500_000));
+
+        let tokens_to_redeem =
+            pool.redeem_tokens(min_tokens, lp_tokens_to_burn, lp_mint_supply)?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 0);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 0);
+
+        // check that calculated tokens to deposit is correct
+        assert_eq!(
+            tokens_to_redeem.get(&mint1).unwrap().amount,
+            18_446_744_073_709_500_000
+        );
+        assert_eq!(
+            tokens_to_redeem.get(&mint2).unwrap().amount,
+            18_446_744_073_709_500_000
+        );
+
+        Ok(())
     }
 }
