@@ -6,6 +6,18 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] 2022-08-06
+
+- Added `try_mul_div` function to allow calculations involivng simultaneously
+  multiplications and divisions to follow a computational path that decreases
+  the risk of getting a MathOverflow.
+- Added `find_exponent` function that finds the exponent of a number, which is
+  a required value for the `try_mul_function`
+- Changed `deposit_tokens` method to use `try_mul_div` in its computation to
+  find the amount of tokens to deposit
+- Changed `get_eligible_lp_tokens` method to use `try_mul_div` in its
+  computation to find the amount of lp to distribute
+
 ## [0.4.6] 2022-07-07
 
 ### Changed
@@ -22,7 +34,14 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
   don't zero out the stable swap polynomial (even though, it should be
   sufficiently close to 0, around 1e-4 magnitude precision).
   For that reason, we loose our checking and allow that a certain value `x` to
-  be considered as a root in case of `SSP(x) < 1e-3`.
+  be considered as a root in case of `SSP(x) < 1e-3`. ##[0.4.5] 2022-07-o7
+
+- Refactor code to compute stable curve invariant. Our approach has several
+  advantages, mainly due to the use of `Decimal` type instead of `LargeDecimal`.
+  These include:
+  1. Less memory usage;
+  2. Higher reserve amounts allowed;
+  3. No numerical instability due to decimal precision.
 
 ## [0.4.4] 2022-07-06
 

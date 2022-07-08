@@ -287,11 +287,8 @@ impl Pool {
                     // the amount of tokens that hose $10 represent is 100.
                     // We can only deposit $5 worth of those tokens.
                     // $5/$10 * 100 = 50 tokens.
-                    let lowest_total_price_to_reserve_total_price =
-                        lowest_token_deposit_total_parity_price
-                            .try_div(denominated_token.total_parity_price)?;
-                    if lowest_total_price_to_reserve_total_price
-                        > Decimal::one()
+                    if lowest_token_deposit_total_parity_price
+                        > denominated_token.total_parity_price
                     {
                         msg!(
                             "The 'lowest_total_price_to_reserve_total_price' \
@@ -305,13 +302,13 @@ impl Pool {
                     Ok((
                         mint,
                         TokenAmount {
-                            amount: denominated_token
-                                .max_tokens_to_deposit
-                                .try_mul(
-                                    lowest_total_price_to_reserve_total_price,
-                                )?
-                                // we ceil to prevent deposit of 0 tokens
-                                .try_ceil()?,
+                            amount: try_mul_div(
+                                denominated_token.max_tokens_to_deposit,
+                                lowest_token_deposit_total_parity_price,
+                                denominated_token.total_parity_price,
+                            )?
+                            // we ceil to prevent deposit of 0 tokens
+                            .try_ceil()?,
                         },
                     ))
                 })
@@ -331,12 +328,16 @@ impl Pool {
                     // mints are represented
                     AmmError::InvariantViolation,
                 )?;
-
             reserve.tokens.amount = reserve
                 .tokens
                 .amount
                 .checked_add(tokens.amount)
-                .ok_or(AmmError::MathOverflow)?;
+                .ok_or_else(|| {
+                    msg!(
+                        "Reserves cannot hold more than u64 amount of tokens."
+                    );
+                    AmmError::MathOverflow
+                })?;
         }
 
         Ok(DepositResult {
@@ -508,12 +509,12 @@ impl Pool {
             .ok_or(AmmError::InvariantViolation)?;
 
         Ok(TokenAmount::new(
-            lp_mint_supply
-                .amount
-                .checked_mul(reserve_deposit.amount)
-                .ok_or(AmmError::MathOverflow)?
-                .checked_div(any_reserve.tokens.amount)
-                .ok_or(AmmError::MathOverflow)?,
+            try_mul_div(
+                Decimal::from(lp_mint_supply.amount),
+                Decimal::from(reserve_deposit.amount),
+                Decimal::from(any_reserve.tokens.amount),
+            )?
+            .try_floor()?,
         ))
     }
 
@@ -1210,6 +1211,323 @@ mod tests {
     }
 
     #[test]
+    fn it_calculates_tokens_to_deposit_when_max_tokens_input_is_unbalanced(
+    ) -> Result<()> {
+        // The purpose of this unit test is to check that the method
+        // `deposit_tokens` returns the correct result when the max_tokens input
+        // has a a very big input token (up to 1.84*10^19 since this is the u64
+        // boundary) versus a small input token. This stretches the calculations
+        // to method responds when dealing with very large numbers
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(29100),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(3303),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+        max_tokens.insert(mint1, TokenAmount::new(150));
+        max_tokens.insert(mint2, TokenAmount::new(18_446_744_073_709_500_000));
+
+        let deposit_result =
+            pool.deposit_tokens(max_tokens, TokenAmount::new(10_000))?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 29100 + 150);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 3303 + 18);
+
+        // check that calculated tokens to deposit is correct
+        let tokens_to_deposit = &deposit_result.tokens_to_deposit;
+        assert_eq!(tokens_to_deposit.get(&mint1).unwrap().amount, 150);
+        assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 18);
+
+        // check that calculated lp tokens to disburse is correct
+        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 51);
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_deposit_when_max_tokens_inputs_are_large(
+    ) -> Result<()> {
+        // The purpose of this unit test is to check that the method
+        // `deposit_tokens` returns the correct result when the all max_tokens
+        // inputs have a a very big input token (up to 1.84*10^19 since this is
+        // the u64 boundary). This stretches the calculations
+        // to method responds when dealing with very large numbers
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(10_000),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(10_000),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+        max_tokens.insert(
+            mint1,
+            TokenAmount::new(18_146_744_073_709_500_000 - 10_000),
+        );
+        max_tokens.insert(
+            mint2,
+            TokenAmount::new(18_146_744_073_709_500_000 - 10_000),
+        );
+
+        let deposit_result =
+            pool.deposit_tokens(max_tokens, TokenAmount::new(10_000))?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 18_146_744_073_709_500_000);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 18_146_744_073_709_500_000);
+
+        // check that calculated tokens to deposit is correct
+        let tokens_to_deposit = &deposit_result.tokens_to_deposit;
+        assert_eq!(
+            tokens_to_deposit.get(&mint1).unwrap().amount,
+            18_146_744_073_709_500_000 - 10_000
+        );
+        assert_eq!(
+            tokens_to_deposit.get(&mint2).unwrap().amount,
+            18_146_744_073_709_500_000 - 10_000
+        );
+
+        // check that calculated lp tokens to disburse is correct
+        assert_eq!(
+            deposit_result.lp_tokens_to_distribute.amount,
+            18_146_744_073_709_500_000 - 10_000
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_errs_tokens_to_deposit_when_reserves_reach_magnitude_limit(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_551_615),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_551_615),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+        max_tokens.insert(mint1, TokenAmount::new(1));
+        max_tokens.insert(mint2, TokenAmount::new(1));
+
+        assert!(pool
+            .deposit_tokens(
+                max_tokens,
+                TokenAmount::new(18_446_744_073_709_551_615),
+            )
+            .is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_tokens_to_deposit_when_reserves_and_max_token_are_large(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 2,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_000_000),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(18_446_744_073_709_000_000),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+        max_tokens.insert(mint1, TokenAmount::new(10_000));
+        max_tokens.insert(mint2, TokenAmount::new(18_446_744_073_709_010_000));
+
+        let deposit_result = pool.deposit_tokens(
+            max_tokens,
+            TokenAmount::new(18_446_744_073_709_000_000),
+        )?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 18_446_744_073_709_010_000);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 18_446_744_073_709_010_000);
+
+        // check that calculated tokens to deposit is correct
+        let tokens_to_deposit = &deposit_result.tokens_to_deposit;
+        assert_eq!(tokens_to_deposit.get(&mint1).unwrap().amount, 10_000);
+        assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 10_000);
+
+        // check that calculated lp tokens to disburse is correct
+        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 10_000);
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_calculates_3_tokens_to_deposit_when_reserves_and_max_token_are_large(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            mint: Pubkey::new_unique(),
+            dimension: 3,
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(20_009_100_000),
+                    mint: mint1,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(19_979_900_010),
+                    mint: mint2,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(20_002_000_000),
+                    mint: mint3,
+                    vault: Pubkey::default(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(0),
+                    mint: Pubkey::default(),
+                    vault: Pubkey::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+        max_tokens.insert(mint1, TokenAmount::new(100_000));
+        max_tokens.insert(mint2, TokenAmount::new(18_446_744_073_709_551_615));
+        max_tokens.insert(mint3, TokenAmount::new(18_446_744_073_709_551_615));
+
+        let deposit_result =
+            pool.deposit_tokens(max_tokens, TokenAmount::new(20_009_100_000))?;
+
+        // Check the pool was currectly updated
+        assert_eq!(pool.reserves[0].mint, mint1);
+        assert_eq!(pool.reserves[0].tokens.amount, 20_009_100_000 + 100_000);
+
+        assert_eq!(pool.reserves[1].mint, mint2);
+        assert_eq!(pool.reserves[1].tokens.amount, 19_979_900_010 + 99_854);
+
+        assert_eq!(pool.reserves[2].mint, mint3);
+        assert_eq!(pool.reserves[2].tokens.amount, 20_002_000_000 + 99_964);
+
+        // check that calculated tokens to deposit is correct
+        let tokens_to_deposit = &deposit_result.tokens_to_deposit;
+        assert_eq!(tokens_to_deposit.get(&mint1).unwrap().amount, 100_000);
+        assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 99_854);
+        assert_eq!(tokens_to_deposit.get(&mint3).unwrap().amount, 99_964);
+
+        // check that calculated lp tokens to disburse is correct
+        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 100_000);
+
+        Ok(())
+    }
+
+    #[test]
     fn it_errs_tokens_to_redeem_when_min_tokens_threshold_reached() -> Result<()>
     {
         let mint1 = Pubkey::new_unique();
@@ -1422,7 +1740,7 @@ mod tests {
 
         assert_eq!(
             Decimal::from(invariant),
-            Decimal::from_scaled_val(352805602633000000000)
+            Decimal::from_scaled_val(352805602632122973013)
         );
     }
 

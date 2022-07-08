@@ -10,10 +10,6 @@ export function test() {
       const permillion = 100_000;
       const validUntilSlot = (await getCurrentSlot()) + 100;
 
-      // console.log(
-      //   await errLogs(putDiscount(user.publicKey, permillion, validUntilSlot))
-      // );
-
       const discount = await putDiscount(
         user.publicKey,
         permillion,
