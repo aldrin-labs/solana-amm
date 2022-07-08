@@ -84,12 +84,6 @@ pub fn compute_positive_root_quadratic_polynomial(
     // sqrt(b^2 + 4ac') / 2a > sqrt(b^2) / 2a = b / 2a
     // thus, (sqrt(b^2 + 4ac') - b) / 2a > 0
     let two_a = LargeDecimal::from(2_u64).try_mul(quadratic_term)?;
-    println!(
-        "({} - {}) / {}",
-        linear_first_term, linear_second_term, two_a
-    );
-    // (4.107858963 - 2000.000000000) / 80.000000000        // 9 dec places
-    // (4107.858963 - 2000.000000) / 80.000000              // 6 dec places
     sqrt_discriminator.try_add(
         linear_first_term
             .try_sub(linear_second_term)?
