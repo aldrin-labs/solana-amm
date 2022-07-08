@@ -133,7 +133,6 @@ export function test() {
 
       expect(info).to.be.deep.eq(poolInfo);
 
-      // deposit again new tokens and check again quantities
       await pool.depositLiquidity({
         maxAmountTokens,
         vaultsAndWallets,

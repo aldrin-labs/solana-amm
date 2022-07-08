@@ -2,18 +2,6 @@
 //! differentiable function zeroes.
 //!
 //! https://en.wikipedia.org/wiki/Newton%27s_method
-//!
-//! The Newton method is highly sensitive to the allowed precision given
-//! by [`LargeDecimal`]. Indeed, decreasing precision from 9 decimal
-//! places to 6 resulted in considerably lower algorithm precision, which
-//! we should not allow to have in production. For this reason, we opt
-//! for at least 9 decimal places of precision. Nevertheless, this
-//! decision comes with a trade off though, namely a decrease in the max
-//! amount of tokens in pool reserves. The reason being that
-//! [`LargeDecimal`] is wrapped to a fixed byte sequence length type
-//! (U320).
-
-use decimal::AlmostEq;
 
 use crate::prelude::*;
 
@@ -38,64 +26,77 @@ pub fn compute(
     // tokens reserve amounts. For this reason, the value of D should be
     // able to be represented by a Decimal type, whenever each single token
     // reserve is also represented by Decimal (which should always be the case)
-    StableCurveInvariant::new(amp, token_reserves_amount)?
-        .compute()
-        .and_then(TryFrom::try_from)
+    StableCurveInvariant::new(amp, token_reserves_amount)?.compute()
 }
 
 struct StableCurveInvariant {
     // number of reserves
     exponent: u64,
-    // product of all reserve amounts * number of reserves
-    n_n_scaled_product: LargeDecimal,
-    // sum of all reserve amounts
-    sum: LargeDecimal,
+    // initial guess for Newton's Method
+    initial_guess: Decimal,
+    // scale down exponent
+    scl_down_coef: Decimal,
     // amplifier * n - 1
-    first_order_coeff: LargeDecimal,
+    first_order_coeff: Decimal,
     // amplifier * n * sum
-    polynomial_third_term: LargeDecimal,
+    polynomial_third_term: Decimal,
 }
 
 impl StableCurveInvariant {
     fn new(amp: u64, token_reserves_amount: &[TokenAmount]) -> Result<Self> {
-        let amp = LargeDecimal::from(amp);
+        let amp = Decimal::from(amp);
 
-        let product = token_reserves_amount
-            .iter()
-            .try_fold(LargeDecimal::one(), |acc, el| {
-                acc.try_mul(LargeDecimal::from(el.amount))
-            })?;
         let sum = token_reserves_amount
             .iter()
-            .try_fold(LargeDecimal::zero(), |acc, el| {
-                acc.try_add(LargeDecimal::from(el.amount))
-            })?;
+            .try_fold(Decimal::zero(), |acc, el| {
+                acc.try_add(Decimal::from(el.amount))
+            })?; // our initial guess for Newton's method
+
+        let scl_down_sum = scale_down_value(sum)?;
+        let initial_guess = scl_down_sum.scale_down;
+        let scl_down_exp = scl_down_sum.exponent;
+
+        let scl_down_coef =
+            Decimal::from(1000_u64).try_pow(scl_down_exp as u64)?;
+
+        let product = token_reserves_amount.iter().try_fold(
+            Decimal::one(),
+            |acc, el| {
+                acc.try_mul(Decimal::from(el.amount).try_div(scl_down_coef)?)
+            },
+        )?;
 
         let exponent = token_reserves_amount.len() as u64;
-        let base: LargeDecimal = exponent.into();
-        let n: LargeDecimal = base.try_pow(exponent)?;
+        let base: Decimal = exponent.into();
+        let n: Decimal = base.try_pow(exponent)?;
         let n_n_scaled_product = n.try_mul(product)?;
-        let first_order_coeff = amp.try_mul(&n)?.try_sub(LargeDecimal::one())?;
-        let polynomial_third_term = amp.try_mul(n)?.try_mul(&sum)?;
+        let first_order_coeff = amp
+            .try_mul(n)?
+            .try_sub(Decimal::one())?
+            .try_mul(n_n_scaled_product)?;
+        let polynomial_third_term = amp
+            .try_mul(n)?
+            .try_mul(sum)?
+            .try_mul(n_n_scaled_product)?
+            .try_div(scl_down_coef)?;
 
         Ok(Self {
             first_order_coeff,
             exponent,
-            n_n_scaled_product,
-            sum,
+            initial_guess,
+            scl_down_coef,
             polynomial_third_term,
         })
     }
 
-    fn compute(self) -> Result<LargeDecimal> {
+    fn compute(self) -> Result<Decimal> {
         // acts as a threshold for the difference between successive
         // approximations
-        let admissible_error: LargeDecimal = LargeDecimal::from(1u64)
-            .try_div(LargeDecimal::from(2u64))
-            .unwrap();
+        let admissible_error: Decimal =
+            Decimal::from(1u64).try_div(Decimal::from(2u64)).unwrap();
 
-        // our initial guess is the sum of token reserve balances
-        let mut prev_val: LargeDecimal = self.sum.clone();
+        // our initial guess is the scaled down sum of token reserve balances
+        let mut prev_val = self.initial_guess;
 
         // current iteration of Newton-Raphson method
         let mut new_val = prev_val;
@@ -118,16 +119,14 @@ impl StableCurveInvariant {
             // applying Newton method to it will result in getting x again,
             // and the reciprocal statement holds true, so it is an equivalence.
             // Thus, the following checks are sufficient to guarantee
-            // full logic coverage
+            // full logic coverage.
             if prev_val <= new_val {
-                let poly_val = self.get_stable_swap_polynomial(&prev_val)?;
-                // we allow up to four decimal places of error
-                // 0.000_010_000
-                let is_val_root_stable_poly =
-                    poly_val <= LargeDecimal::from_scaled_val(10_000);
+                let is_val_root_stable_poly = self
+                    .get_stable_swap_polynomial(&prev_val)?
+                    == Decimal::zero();
 
                 if is_val_root_stable_poly {
-                    return Ok(prev_val);
+                    return prev_val.try_mul(self.scl_down_coef);
                 } else {
                     // in this case, prev_val is not a root of the polynomial,
                     // and therefore having prev_val <=
@@ -135,11 +134,7 @@ impl StableCurveInvariant {
                     // mathematical assumptions
                     msg!(
                         "Invalid mathematical assumption: \
-                        previous value {} cannot be less or equal to current
-                        value {} and polynomial value {} different than zero",
-                        prev_val,
-                        new_val,
-                        poly_val
+                        previous value cannot be less or equal to new value"
                     );
                     return Err(error!(AmmError::InvariantViolation));
                 }
@@ -147,21 +142,20 @@ impl StableCurveInvariant {
 
             // assuming that prev_val >= new_val, we just need to check that
             // prev_val - new_val <= adm_error
-            if prev_val.try_sub(&new_val)? <= admissible_error {
+            if prev_val.try_sub(new_val)? <= admissible_error {
                 break;
             }
         }
 
-        Ok(new_val)
+        new_val.try_mul(self.scl_down_coef)
     }
 
     fn newton_method_single_iteration(
         &self,
-        initial_guess: &LargeDecimal,
-    ) -> Result<LargeDecimal> {
+        initial_guess: &Decimal,
+    ) -> Result<Decimal> {
         let stable_swap_poly =
             self.get_stable_swap_polynomial(initial_guess)?;
-
         let derivative_stable_swap_poly =
             self.get_derivate_stable_swap_polynomial(initial_guess)?;
 
@@ -170,49 +164,56 @@ impl StableCurveInvariant {
     }
 
     // Stable swap polynomial to be found in README.md under AMM - Equations
-    fn get_stable_swap_polynomial(
-        &self,
-        val: &LargeDecimal,
-    ) -> Result<LargeDecimal> {
-        let first_term = val
-            .try_pow(self.exponent + 1)?
-            .try_div(&self.n_n_scaled_product)?;
-        let second_term = val.try_mul(&self.first_order_coeff)?;
-        let first_plus_second = first_term.try_add(&second_term)?;
+    fn get_stable_swap_polynomial(&self, val: &Decimal) -> Result<Decimal> {
+        // D^(n+1) + D(An^n -1)\prod_i x_i n^n + A(n^n)^2\sum_i x_i \prod_i x_i
+        let first_term = val.try_pow(self.exponent + 1)?;
 
-        // The input value could almost make the polynomial zero, but due to
-        // rounding errors could be off. The difference gets larger with larger
-        // token balances. The [`LargeDecimal`] has precision on 9 dec places.
-        // We consider the val to be good enough if it makes the polynomial
-        // close to zero with precision to 3 decimal places (9 - 6).
-        let precision = 6;
-        if first_plus_second.almost_eq(&self.polynomial_third_term, precision) {
-            Ok(LargeDecimal::zero())
-        } else {
-            first_plus_second.try_sub(&self.polynomial_third_term)
-        }
+        let second_term = val.try_mul(self.first_order_coeff)?;
+
+        first_term
+            .try_add(second_term)?
+            .try_sub(self.polynomial_third_term)
     }
 
     // Derivative of stable swap polynomial to be found in README.md under AMM -
     // Equations
     fn get_derivate_stable_swap_polynomial(
         &self,
-        val: &LargeDecimal,
-    ) -> Result<LargeDecimal> {
-        let first_term = LargeDecimal::from(self.exponent)
-            .try_add(LargeDecimal::one())?
-            .try_mul(val.try_pow(self.exponent)?)?
-            .try_div(&self.n_n_scaled_product)?;
-        let second_term = &self.first_order_coeff;
+        val: &Decimal,
+    ) -> Result<Decimal> {
+        let first_term = Decimal::from(self.exponent)
+            .try_add(Decimal::one())?
+            .try_mul(val.try_pow(self.exponent)?)?;
+        let second_term = self.first_order_coeff;
 
         first_term.try_add(second_term)
     }
 }
 
+struct ScaleDownOutput {
+    scale_down: Decimal,
+    exponent: u32,
+}
+
+fn scale_down_value(mut val: Decimal) -> Result<ScaleDownOutput> {
+    let mut n = 0u32;
+    let bound = Decimal::from(1000u64);
+
+    while val > bound {
+        val = val.try_div(Decimal::from(1000u64))?;
+        n += 1u32;
+    }
+
+    Ok(ScaleDownOutput {
+        scale_down: val,
+        exponent: n,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
+    use proptest::*;
 
     #[test]
     fn fails_if_amplifier_is_zero() {
@@ -234,7 +235,7 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = 1u64.into();
+        let val: Decimal = 1u64.into();
         assert!(state.get_stable_swap_polynomial(&val).is_err());
     }
 
@@ -246,7 +247,7 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val = LargeDecimal::from_scaled_val(u128::MAX);
+        let val = Decimal::from_scaled_val(u128::MAX);
         assert!(state.get_derivate_stable_swap_polynomial(&val).is_err());
     }
 
@@ -365,6 +366,8 @@ mod tests {
             500_000_000_000000u64,
             // $10bn
             10_000_000_000_000000u64,
+            // $100bn
+            100_000_000_000_000000u64,
         ] {
             match compute(
                 amp,
@@ -397,21 +400,10 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = (110u64).into();
+        let val: Decimal = (110u64).into();
         let result = state.get_stable_swap_polynomial(&val).unwrap();
 
-        assert_eq!(
-            result,
-            LargeDecimal::from(222u64)
-                .try_add(
-                    LargeDecimal::from(3u64)
-                        .try_div(LargeDecimal::from(2u64))
-                        .unwrap()
-                        .try_div(LargeDecimal::from(2u64))
-                        .unwrap()
-                )
-                .unwrap()
-        );
+        assert_eq!(result, Decimal::from_scaled_val(891000000000000000000000));
     }
 
     #[test]
@@ -422,23 +414,10 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = 110u64.into();
+        let val: Decimal = 110u64.into();
         let result = state.get_derivate_stable_swap_polynomial(&val).unwrap();
 
-        assert_eq!(
-            result,
-            LargeDecimal::from(48u64)
-                .try_add(
-                    LargeDecimal::from(3u64)
-                        .try_div(LargeDecimal::from(2u64))
-                        .unwrap()
-                        .try_div(LargeDecimal::from(2u64))
-                        .unwrap()
-                        .try_div(LargeDecimal::from(10u64))
-                        .unwrap()
-                )
-                .unwrap()
-        );
+        assert_eq!(result, Decimal::from_scaled_val(192300000000000000000000));
     }
 
     #[test]
@@ -449,10 +428,13 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = (360u64).into();
+        let val: Decimal = (360u64).into();
         let result = state.get_stable_swap_polynomial(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(2128320000000));
+        assert_eq!(
+            result,
+            Decimal::from_scaled_val(14366160000000000000000000000)
+        );
     }
 
     #[test]
@@ -463,10 +445,13 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = (360u64).into();
+        let val: Decimal = (360u64).into();
         let result = state.get_derivate_stable_swap_polynomial(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(296648000000));
+        assert_eq!(
+            result,
+            Decimal::from_scaled_val(2002374000000000000000000000)
+        );
     }
 
     #[test]
@@ -477,7 +462,7 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = u128::MAX.into();
+        let val: Decimal = u128::MAX.into();
         assert!(state.newton_method_single_iteration(&val).is_err());
     }
 
@@ -489,10 +474,10 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = (110u64).into();
+        let val: Decimal = (110u64).into();
         let result = state.newton_method_single_iteration(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(105366614665));
+        assert_eq!(result, Decimal::from_scaled_val(105366614664586583464));
     }
 
     #[test]
@@ -503,24 +488,20 @@ mod tests {
         let state =
             StableCurveInvariant::new(amp, &token_reserves_amount).unwrap();
 
-        let val: LargeDecimal = (360u64).into();
+        let val: Decimal = (360u64).into();
         let result = state.newton_method_single_iteration(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(352825436208));
+        assert_eq!(result, Decimal::from_scaled_val(352825436207222027454));
     }
 
     #[test]
     fn newton_method_overflows() {
         let amp = u64::MAX.into();
 
-        let token_reserves_amount: Vec<TokenAmount> = vec![
-            u64::MAX.into(),
-            u64::MAX.into(),
-            u64::MAX.into(),
-            u64::MAX.into(),
-        ];
+        let token_reserves_amount: Vec<TokenAmount> =
+            vec![u64::MAX.into(), u64::MAX.into(), 2u64.into()];
 
-        assert!(compute(amp, &token_reserves_amount).is_err());
+        assert!(compute(amp, &token_reserves_amount,).is_err());
     }
 
     #[test]
@@ -532,7 +513,7 @@ mod tests {
 
         let result = compute(amp, &token_reserves_amount).unwrap();
 
-        assert_eq!(result, Decimal::from_scaled_val(105329716514000000000));
+        assert_eq!(result, Decimal::from_scaled_val(105329716513966933807));
     }
 
     #[test]
@@ -544,26 +525,7 @@ mod tests {
 
         let result = compute(amp, &token_reserves_amount).unwrap();
 
-        assert_eq!(result, Decimal::from_scaled_val(352805602633000000000));
-    }
-
-    #[test]
-    fn should_successful_approximation_zeros_test() {
-        let amp = 10u64;
-
-        let token_reserves_amount: Vec<TokenAmount> = vec![
-            TokenAmount {
-                amount: 20000000000,
-            },
-            TokenAmount {
-                amount: 19989000000,
-            },
-            TokenAmount {
-                amount: 20002000000,
-            },
-        ];
-
-        assert!(compute(amp, &token_reserves_amount).is_ok());
+        assert_eq!(result, Decimal::from_scaled_val(352805602632122973013));
     }
 
     proptest! {
@@ -584,9 +546,9 @@ mod tests {
         #[test]
         fn successfully_computes_invariant_with_three_reserves(
             amp in 2..200u64,
-            first_reserve_amount in 1..1_000_000_000_000_000u64,
-            second_reserve_amount in 1..1_000_000_000_000_000u64,
-            third_reserve_amount in 1..1_000_000_000_000_000u64
+            first_reserve_amount in 1..10_000_000_000_000_000u64,
+            second_reserve_amount in 1..10_000_000_000_000_000u64,
+            third_reserve_amount in 1..10_000_000_000_000_000u64
         ) {
             let token_reserves_amount = vec![
                 TokenAmount::new(first_reserve_amount),
@@ -600,10 +562,10 @@ mod tests {
         #[test]
         fn successfully_computes_invariant_with_four_reserves(
             amp in 2..200u64,
-            first_reserve_amount in 1..1_000_000_000_000_000u64,
-            second_reserve_amount in 1..1_000_000_000_000_000u64,
-            third_reserve_amount in 1..1_000_000_000_000_000u64,
-            forth_reserve_amount in 1..1_000_000_000_000_000u64
+            first_reserve_amount in 1..10_000_000_000_000_000u64,
+            second_reserve_amount in 1..10_000_000_000_000_000u64,
+            third_reserve_amount in 1..10_000_000_000_000_000u64,
+            forth_reserve_amount in 1..10_000_000_000_000_000u64
         ) {
             let token_reserves_amount = vec![
                 TokenAmount::new(first_reserve_amount),
