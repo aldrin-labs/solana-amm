@@ -6,6 +6,12 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] 2022-07-07
+
+### Changed
+
+- Using large decimal number for stable curve invariant calculation and swap
+  equations which has 9 decimal lances instead of 6.
 
 ## [0.4.5] 2022-07-07
 

@@ -1422,7 +1422,7 @@ mod tests {
 
         assert_eq!(
             Decimal::from(invariant),
-            Decimal::from_scaled_val(352805603000000000000)
+            Decimal::from_scaled_val(352805602633000000000)
         );
     }
 

@@ -2,9 +2,20 @@
 //! differentiable function zeroes.
 //!
 //! https://en.wikipedia.org/wiki/Newton%27s_method
+//!
+//! The Newton method is highly sensitive to the allowed precision given
+//! by [`LargeDecimal`]. Indeed, decreasing precision from 9 decimal
+//! places to 6 resulted in considerably lower algorithm precision, which
+//! we should not allow to have in production. For this reason, we opt
+//! for at least 9 decimal places of precision. Nevertheless, this
+//! decision comes with a trade off though, namely a decrease in the max
+//! amount of tokens in pool reserves. The reason being that
+//! [`LargeDecimal`] is wrapped to a fixed byte sequence length type
+//! (U320).
+
+use decimal::AlmostEq;
 
 use crate::prelude::*;
-use decimal::AlmostEq;
 
 // The method should converge within few iterations, due to the fact
 // we are approximating positive root from a well positioned first
@@ -110,8 +121,10 @@ impl StableCurveInvariant {
             // full logic coverage
             if prev_val <= new_val {
                 let poly_val = self.get_stable_swap_polynomial(&prev_val)?;
+                // we allow up to four decimal places of error
+                // 0.000_010_000
                 let is_val_root_stable_poly =
-                    poly_val.almost_eq(&LargeDecimal::zero()); // up to three decimal places precision
+                    poly_val <= LargeDecimal::from_scaled_val(10_000);
 
                 if is_val_root_stable_poly {
                     return Ok(prev_val);
@@ -148,6 +161,7 @@ impl StableCurveInvariant {
     ) -> Result<LargeDecimal> {
         let stable_swap_poly =
             self.get_stable_swap_polynomial(initial_guess)?;
+
         let derivative_stable_swap_poly =
             self.get_derivate_stable_swap_polynomial(initial_guess)?;
 
@@ -164,10 +178,19 @@ impl StableCurveInvariant {
             .try_pow(self.exponent + 1)?
             .try_div(&self.n_n_scaled_product)?;
         let second_term = val.try_mul(&self.first_order_coeff)?;
+        let first_plus_second = first_term.try_add(&second_term)?;
 
-        first_term
-            .try_add(second_term)?
-            .try_sub(&self.polynomial_third_term)
+        // The input value could almost make the polynomial zero, but due to
+        // rounding errors could be off. The difference gets larger with larger
+        // token balances. The [`LargeDecimal`] has precision on 9 dec places.
+        // We consider the val to be good enough if it makes the polynomial
+        // close to zero with precision to 3 decimal places (9 - 6).
+        let precision = 6;
+        if first_plus_second.almost_eq(&self.polynomial_third_term, precision) {
+            Ok(LargeDecimal::zero())
+        } else {
+            first_plus_second.try_sub(&self.polynomial_third_term)
+        }
     }
 
     // Derivative of stable swap polynomial to be found in README.md under AMM -
@@ -189,6 +212,7 @@ impl StableCurveInvariant {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn fails_if_amplifier_is_zero() {
@@ -428,7 +452,7 @@ mod tests {
         let val: LargeDecimal = (360u64).into();
         let result = state.get_stable_swap_polynomial(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(2128320000));
+        assert_eq!(result, LargeDecimal::from_scaled_val(2128320000000));
     }
 
     #[test]
@@ -442,7 +466,7 @@ mod tests {
         let val: LargeDecimal = (360u64).into();
         let result = state.get_derivate_stable_swap_polynomial(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(296648000));
+        assert_eq!(result, LargeDecimal::from_scaled_val(296648000000));
     }
 
     #[test]
@@ -468,7 +492,7 @@ mod tests {
         let val: LargeDecimal = (110u64).into();
         let result = state.newton_method_single_iteration(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(105366615));
+        assert_eq!(result, LargeDecimal::from_scaled_val(105366614665));
     }
 
     #[test]
@@ -482,17 +506,21 @@ mod tests {
         let val: LargeDecimal = (360u64).into();
         let result = state.newton_method_single_iteration(&val).unwrap();
 
-        assert_eq!(result, LargeDecimal::from_scaled_val(352825437));
+        assert_eq!(result, LargeDecimal::from_scaled_val(352825436208));
     }
 
     #[test]
     fn newton_method_overflows() {
         let amp = u64::MAX.into();
 
-        let token_reserves_amount: Vec<TokenAmount> =
-            vec![u64::MAX.into(), u64::MAX.into(), 2u64.into()];
+        let token_reserves_amount: Vec<TokenAmount> = vec![
+            u64::MAX.into(),
+            u64::MAX.into(),
+            u64::MAX.into(),
+            u64::MAX.into(),
+        ];
 
-        assert!(compute(amp, &token_reserves_amount,).is_err());
+        assert!(compute(amp, &token_reserves_amount).is_err());
     }
 
     #[test]
@@ -504,7 +532,7 @@ mod tests {
 
         let result = compute(amp, &token_reserves_amount).unwrap();
 
-        assert_eq!(result, Decimal::from_scaled_val(105329717000000000000));
+        assert_eq!(result, Decimal::from_scaled_val(105329716514000000000));
     }
 
     #[test]
@@ -516,7 +544,7 @@ mod tests {
 
         let result = compute(amp, &token_reserves_amount).unwrap();
 
-        assert_eq!(result, Decimal::from_scaled_val(352805603000000000000));
+        assert_eq!(result, Decimal::from_scaled_val(352805602633000000000));
     }
 
     #[test]
@@ -533,6 +561,94 @@ mod tests {
             TokenAmount {
                 amount: 20002000000,
             },
+        ];
+
+        assert!(compute(amp, &token_reserves_amount).is_ok());
+    }
+
+    proptest! {
+        #[test]
+        fn successfully_computes_invariant_with_two_reserves(
+            amp in 2..200u64,
+            first_reserve_amount in 1..10_000_000_000_000_000u64,
+            second_reserve_amount in 1..10_000_000_000_000_000u64,
+        ) {
+            let token_reserves_amount = vec![
+                TokenAmount::new(first_reserve_amount),
+                TokenAmount::new(second_reserve_amount),
+            ];
+
+            assert!(compute(amp, &token_reserves_amount).is_ok());
+        }
+
+        #[test]
+        fn successfully_computes_invariant_with_three_reserves(
+            amp in 2..200u64,
+            first_reserve_amount in 1..1_000_000_000_000_000u64,
+            second_reserve_amount in 1..1_000_000_000_000_000u64,
+            third_reserve_amount in 1..1_000_000_000_000_000u64
+        ) {
+            let token_reserves_amount = vec![
+                TokenAmount::new(first_reserve_amount),
+                TokenAmount::new(second_reserve_amount),
+                TokenAmount::new(third_reserve_amount),
+            ];
+
+            assert!(compute(amp, &token_reserves_amount).is_ok());
+        }
+
+        #[test]
+        fn successfully_computes_invariant_with_four_reserves(
+            amp in 2..200u64,
+            first_reserve_amount in 1..1_000_000_000_000_000u64,
+            second_reserve_amount in 1..1_000_000_000_000_000u64,
+            third_reserve_amount in 1..1_000_000_000_000_000u64,
+            forth_reserve_amount in 1..1_000_000_000_000_000u64
+        ) {
+            let token_reserves_amount = vec![
+                TokenAmount::new(first_reserve_amount),
+                TokenAmount::new(second_reserve_amount),
+                TokenAmount::new(third_reserve_amount),
+                TokenAmount::new(forth_reserve_amount),
+            ];
+
+            assert!(compute(amp, &token_reserves_amount).is_ok());
+        }
+    }
+
+    #[test]
+    fn regression_test_1() {
+        let token_reserves_amount = vec![
+            TokenAmount::new(323937059261502),
+            TokenAmount::new(307818470989694),
+            TokenAmount::new(409053424216126),
+        ];
+
+        compute(36, &token_reserves_amount).unwrap();
+    }
+
+    #[test]
+    fn regression_test_2() {
+        let token_reserves_amount = vec![
+            TokenAmount::new(323937059261502),
+            TokenAmount::new(307818470989694),
+            TokenAmount::new(362813707275663),
+        ];
+
+        compute(36, &token_reserves_amount).unwrap();
+    }
+
+    #[test]
+    fn regression_test_3() {
+        let amp = 2u64;
+        let first_reserve_amount = 6801827978;
+        let second_reserve_amount = 670789431u64;
+        let third_reserve_amount = 2631887715u64;
+
+        let token_reserves_amount = vec![
+            TokenAmount::new(first_reserve_amount),
+            TokenAmount::new(second_reserve_amount),
+            TokenAmount::new(third_reserve_amount),
         ];
 
         assert!(compute(amp, &token_reserves_amount).is_ok());

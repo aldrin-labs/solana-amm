@@ -78,13 +78,22 @@ pub fn compute_positive_root_quadratic_polynomial(
         .try_div(LargeDecimal::from(2_u64).try_mul(quadratic_term.clone())?)?;
 
     // finally, the root of the polynomial is given by
-    // sqrt(b^2 - 4ac) / 2a - b / 2a
+    // (sqrt(b^2 - 4ac) - b) / 2a
     // this value should always be positive, because
-    // sqrt(b^2 + 4ac) / 2a > sqrt(b^2) / 2a = b / 2a
+    // c = - c', where c' is positive and a is also positive
+    // sqrt(b^2 + 4ac') / 2a > sqrt(b^2) / 2a = b / 2a
+    // thus, (sqrt(b^2 + 4ac') - b) / 2a > 0
+    let two_a = LargeDecimal::from(2_u64).try_mul(quadratic_term)?;
+    println!(
+        "({} - {}) / {}",
+        linear_first_term, linear_second_term, two_a
+    );
+    // (4.107858963 - 2000.000000000) / 80.000000000        // 9 dec places
+    // (4107.858963 - 2000.000000) / 80.000000              // 6 dec places
     sqrt_discriminator.try_add(
         linear_first_term
             .try_sub(linear_second_term)?
-            .try_div(LargeDecimal::from(2_u64).try_mul(quadratic_term)?)?,
+            .try_div(two_a)?,
     )
 }
 
@@ -150,7 +159,7 @@ mod tests {
 
         let num_reserves = 2;
         let amp = LargeDecimal::from(10_u64);
-        let d = LargeDecimal::from_scaled_val(105329717);
+        let d = LargeDecimal::from_scaled_val(105329717000);
         let sum = LargeDecimal::from(50_u64);
         let product = LargeDecimal::from(50_u64);
 
@@ -163,6 +172,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, LargeDecimal::from_scaled_val(55336168));
+        assert_eq!(root, LargeDecimal::from_scaled_val(55336168642));
     }
 }
