@@ -113,6 +113,10 @@ pub fn handle<'info>(
         max_amount_tokens,
         TokenAmount::new(accs.lp_mint.supply),
     )?;
+    let lp_tokens_to_distribute = lp_tokens_to_distribute.ok_or_else(|| {
+        msg!("Provided liquidity is too small to be represented");
+        AmmError::InvalidArg
+    })?;
 
     // deposit tokens from pool reserves
     for vault_wallet in token_vaults_wallets.chunks(2) {
@@ -153,7 +157,8 @@ pub fn handle<'info>(
 
         // if user does not have enough funds we return an error
         if add_tokens_to_reserve.amount > user_wallet.amount {
-            return Err(error!(AmmError::InvalidTokenAmount));
+            msg!("Not enough funds in user wallet for this deposit");
+            return Err(error!(AmmError::InvalidArg));
         }
 
         // make token transfers from user token wallet to pool token vault

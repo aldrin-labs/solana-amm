@@ -309,7 +309,7 @@ struct MintLpTokens {
     mint: Pubkey,
     destination: Pubkey,
     pool_signer: Pubkey,
-    lp_tokens_to_distribute: TokenAmount,
+    lp_tokens_to_distribute: Option<TokenAmount>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -377,7 +377,7 @@ impl stub::ValidateCpis for CpiValidator {
                     &destination,
                     &pool_signer,
                     &[],
-                    lp_tokens_to_distribute.amount,
+                    lp_tokens_to_distribute.unwrap_or_default().amount,
                 )
                 .unwrap();
                 assert_eq!(&expected_ix, ix);
@@ -390,7 +390,7 @@ impl stub::ValidateCpis for CpiValidator {
                 spl::mint::mint_to(
                     wallet,
                     lp_mint,
-                    lp_tokens_to_distribute.amount,
+                    lp_tokens_to_distribute.unwrap_or_default().amount,
                 )
                 .expect("Cannot mint LP tokens");
 

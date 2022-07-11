@@ -6,7 +6,7 @@ use anchor_spl::token;
 pub use anchor_spl::token::spl_token::state::{Account as TokenAccount, Mint};
 use anchortest::{
     builder::*,
-    spl::{self, TokenAccountExt},
+    spl::{self, MintExt, TokenAccountExt},
 };
 use deposit_redeem::*;
 use pretty_assertions::assert_eq;
@@ -185,7 +185,7 @@ fn fails_if_user_does_not_have_enough_funds() -> Result<()> {
         .unwrap_err()
         .to_string();
 
-    assert!(error.contains("InvalidTokenAmount"));
+    assert!(error.contains("InvalidArg"));
 
     Ok(())
 }
@@ -610,6 +610,43 @@ fn fails_if_at_least_one_wrong_vault_is_provided() -> Result<()> {
         .to_string();
 
     assert!(error.contains("InvalidAccountInput"));
+
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn fails_if_no_lp_tokens_would_be_minted() -> Result<()> {
+    // in the previous version of AMM, if the first deposit was very small,
+    // then the subsequent deposits couldn't go too large because of overflow
+
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+
+    tester.deposit_liquidity(
+        reserves
+            .iter()
+            .map(|r| (r.mint, TokenAmount::new(10_000)))
+            .collect(),
+        &reserves,
+    )?;
+
+    // make 1 LP token expensive
+    let lp_mint =
+        spl::mint::from_acc_info(&tester.lp_mint.to_account_info()).supply(10);
+    tester.lp_mint = tester.lp_mint.pack(lp_mint);
+
+    let error = tester
+        .deposit_liquidity(
+            reserves
+                .iter()
+                // second deposit is tiny
+                .map(|r| (r.mint, TokenAmount::new(10)))
+                .collect(),
+            &reserves,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("InvalidArg"));
 
     Ok(())
 }
