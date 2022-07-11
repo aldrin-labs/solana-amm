@@ -6,6 +6,13 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] 2022-08-08
+
+### Fixed
+
+- We now fail the operation if the user attempts to deposit so little liquidity
+  that it cannot be represented by LP tokens.
+
 ## [0.4.7] 2022-08-06
 
 - Added `try_mul_div` function to allow calculations involivng simultaneously

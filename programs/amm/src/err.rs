@@ -21,8 +21,6 @@ pub enum AmmError {
     /// wrong token mints
     #[msg("Provided mints are not available on the pool")]
     InvalidTokenMints,
-    #[msg("Invalid token amount to deposit")]
-    InvalidTokenAmount,
     #[msg("Invalid lp token amount to burn")]
     InvalidLpTokenAmount,
 }

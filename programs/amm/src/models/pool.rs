@@ -81,7 +81,10 @@ pub struct RedeemMintTokens {
 
 #[derive(Debug, Eq, PartialEq, Default)]
 pub struct DepositResult {
-    pub lp_tokens_to_distribute: TokenAmount,
+    /// # Important
+    /// This value can be [`None`] if tokens to deposit are so small that LP
+    /// tokens don't have enough precision to represent the liquidity.
+    pub lp_tokens_to_distribute: Option<TokenAmount>,
     pub tokens_to_deposit: BTreeMap<Pubkey, TokenAmount>,
 }
 
@@ -189,7 +192,7 @@ impl Pool {
                 AmmError::InvariantViolation,
             )?;
 
-            (max_tokens, lp_tokens_to_distribute)
+            (max_tokens, Some(lp_tokens_to_distribute))
         } else {
             // pick the token with the lowest pool price and
             // price all other tokens with that denominator
@@ -499,7 +502,7 @@ impl Pool {
         &self,
         tokens_deposited: &BTreeMap<Pubkey, TokenAmount>,
         lp_mint_supply: TokenAmount,
-    ) -> Result<TokenAmount> {
+    ) -> Result<Option<TokenAmount>> {
         debug_assert_ne!(lp_mint_supply, TokenAmount::new(0));
         debug_assert_eq!(tokens_deposited.len(), self.dimension as usize);
 
@@ -508,14 +511,20 @@ impl Pool {
             .get(&any_reserve.mint)
             .ok_or(AmmError::InvariantViolation)?;
 
-        Ok(TokenAmount::new(
+        let tokens = TokenAmount::new(
             try_mul_div(
                 Decimal::from(lp_mint_supply.amount),
                 Decimal::from(reserve_deposit.amount),
                 Decimal::from(any_reserve.tokens.amount),
             )?
             .try_floor()?,
-        ))
+        );
+
+        Ok(if tokens.amount == 0 {
+            None
+        } else {
+            Some(tokens)
+        })
     }
 
     /// This is called after a deposit or redemption.
@@ -801,7 +810,7 @@ mod tests {
         // check that calculated lp tokens to disburse is correct
         // In this case the lp tokens disbursed should be equal to 10 since its
         // the deposit amount of the most expensive token
-        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 10);
+        assert_eq!(deposit_result.lp_tokens_to_distribute, Some(10.into()));
 
         Ok(())
     }
@@ -863,7 +872,7 @@ mod tests {
         // check that calculated lp tokens to disburse is correct
         // In this case the lp tokens disbursed should be equal to 4, we
         // calculate this via a simple rule of three
-        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 4);
+        assert_eq!(deposit_result.lp_tokens_to_distribute, Some(4.into()));
 
         Ok(())
     }
@@ -1225,7 +1234,7 @@ mod tests {
         assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 18);
 
         // check that calculated lp tokens to disburse is correct
-        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 51);
+        assert_eq!(deposit_result.lp_tokens_to_distribute, Some(51.into()));
 
         Ok(())
     }
@@ -1294,8 +1303,8 @@ mod tests {
 
         // check that calculated lp tokens to disburse is correct
         assert_eq!(
-            deposit_result.lp_tokens_to_distribute.amount,
-            18_146_744_073_709_500_000 - 10_000
+            deposit_result.lp_tokens_to_distribute,
+            Some((18_146_744_073_709_500_000 - 10_000).into())
         );
 
         Ok(())
@@ -1389,7 +1398,7 @@ mod tests {
         assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 10_000);
 
         // check that calculated lp tokens to disburse is correct
-        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 10_000);
+        assert_eq!(deposit_result.lp_tokens_to_distribute, Some(10_000.into()));
 
         Ok(())
     }
@@ -1450,7 +1459,10 @@ mod tests {
         assert_eq!(tokens_to_deposit.get(&mint3).unwrap().amount, 99_964);
 
         // check that calculated lp tokens to disburse is correct
-        assert_eq!(deposit_result.lp_tokens_to_distribute.amount, 100_000);
+        assert_eq!(
+            deposit_result.lp_tokens_to_distribute,
+            Some(100_000.into())
+        );
 
         Ok(())
     }
@@ -2050,6 +2062,74 @@ mod tests {
             pool.calculate_swap(base_mint, tokens_to_swap, quote_mint)
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn returns_zero_lp_tokens_to_mint_if_the_deposit_extremely_small(
+    ) -> Result<()> {
+        let mint1 = Pubkey::new_unique();
+        let mint2 = Pubkey::new_unique();
+        let mint3 = Pubkey::new_unique();
+
+        let mut pool = Pool {
+            dimension: 3,
+            curve: Curve::Stable {
+                amplifier: 10,
+                invariant: Default::default(),
+            },
+            reserves: [
+                Reserve {
+                    tokens: TokenAmount::new(20_000_000_000),
+                    mint: mint1,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(19_989_000_000),
+                    mint: mint2,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve {
+                    tokens: TokenAmount::new(20_002_000_000),
+                    mint: mint3,
+                    vault: Pubkey::new_unique(),
+                },
+                Reserve::default(),
+            ],
+            ..Default::default()
+        };
+
+        pool.update_curve_invariant()?;
+
+        let max_tokens = vec![
+            (mint1, TokenAmount::new(100000)),
+            (mint2, TokenAmount::new(18446744073709551615)),
+            (mint3, TokenAmount::new(18446744073709551615)),
+        ]
+        .into_iter()
+        .collect();
+        let lp_mint_supply = TokenAmount::new(10000);
+        let DepositResult {
+            lp_tokens_to_distribute,
+            tokens_to_deposit,
+        } = pool.deposit_tokens(max_tokens, lp_mint_supply)?;
+
+        assert_eq!(
+            tokens_to_deposit.get(&mint1).unwrap(),
+            &TokenAmount::new(100000)
+        );
+        assert_eq!(
+            tokens_to_deposit.get(&mint2).unwrap(),
+            &TokenAmount::new(99945)
+        );
+        assert_eq!(
+            tokens_to_deposit.get(&mint3).unwrap(),
+            &TokenAmount::new(100010)
+        );
+
+        // the deposit is too small to be represented given current LP supply
+        assert_eq!(lp_tokens_to_distribute, None);
+
+        Ok(())
     }
 
     #[test]
