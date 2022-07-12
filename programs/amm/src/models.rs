@@ -61,6 +61,12 @@ impl TokenAmount {
     pub fn new(amount: u64) -> Self {
         Self { amount }
     }
+
+    pub fn max_value() -> Self {
+        Self {
+            amount: std::u64::MAX,
+        }
+    }
 }
 
 impl Slot {
@@ -89,8 +95,14 @@ impl From<TokenAmount> for Decimal {
     }
 }
 
+impl From<Permillion> for Decimal {
+    fn from(permillion: Permillion) -> Self {
+        Decimal::from_permillion(permillion.permillion)
+    }
+}
+
 impl From<u64> for TokenAmount {
     fn from(amount: u64) -> Self {
-        TokenAmount { amount }
+        Self { amount }
     }
 }

@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use helpers::scale_down_value;
 use std::collections::BTreeMap;
 
 /// Consider an LP, with two token reserves A and B and indexed
@@ -22,60 +23,67 @@ use std::collections::BTreeMap;
 ///     Total value of new quote tokens in the LP after swap
 pub fn compute_positive_root_quadratic_polynomial(
     num_reserves: u64,
-    amp: &LargeDecimal,
-    d: &LargeDecimal,
-    sum: LargeDecimal,
-    product: LargeDecimal,
-) -> Result<LargeDecimal> {
+    amp: &Decimal,
+    d: &Decimal,
+    sum: Decimal,
+    product: Decimal,
+) -> Result<Decimal> {
     // the linear term of the quadratic equation is
     // A n^n sum_{i != k} x_i - D(n^n A - 1)
 
-    // since we are dealing with LargeDecimal types,
+    // since we are dealing with Decimal types,
     // which rely on U320, we split the computation
     // of the linear term as a first term
     // A n^n sum_{i != k} x_i
     // and a second term
     // D(n^n A - 1)
+    let scale_down_out = scale_down_value(*d)?;
+    let d = scale_down_out.scale_down;
+    let exp = scale_down_out.exponent;
 
-    let n_pow_n = LargeDecimal::from(num_reserves).try_pow(num_reserves)?;
+    let product = product
+        .try_div(Decimal::from(1000u64.pow(exp)).try_pow(num_reserves - 1)?)?;
+    let sum = sum.try_div(Decimal::from(1000u64.pow(exp)))?;
+
+    let n_pow_n = Decimal::from(num_reserves).try_pow(num_reserves)?;
 
     // D(n^n A - 1)
     let linear_first_term =
-        d.try_mul(n_pow_n.try_mul(amp)?.try_sub(LargeDecimal::one())?)?;
+        d.try_mul(n_pow_n.try_mul(*amp)?.try_sub(Decimal::one())?)?;
 
     // A n^n sum_{i != k} x_i
-    let linear_second_term = amp.try_mul(&n_pow_n)?.try_mul(sum)?;
+    let linear_second_term = amp.try_mul(n_pow_n)?.try_mul(sum)?;
 
     // b^2 = [A n^n sum_{i != k} x_i - D(n^n A - 1)]^2
     // since we take a square power, we can compute the absolute value
     // of the base and take its square
-    let b_squared = match linear_second_term.try_sub(linear_first_term.clone())
-    {
+    let mut is_symmetric = false;
+    let b = match linear_second_term.try_sub(linear_first_term) {
         // Math overflow error, due to the existence of a negative value
-        Err(_) => linear_first_term
-            .try_sub(linear_second_term.clone())?
-            .try_pow(2_u64)?,
-        Ok(val) => val.try_pow(2_u64)?,
+        Err(_) => {
+            is_symmetric = true;
+            linear_first_term.try_sub(linear_second_term)?
+        }
+        Ok(val) => val,
     };
 
     // get the value of constant term = D^(n+1) / n^n prod_{i != k} x_i
     let constant_term = d
         .try_pow(num_reserves + 1)?
-        .try_div(n_pow_n.try_mul(product)?)?;
+        .try_div(n_pow_n.try_mul(product)?)?; //todo: should be sum
 
     let quadratic_term = amp.try_mul(n_pow_n)?;
-
     // sqrt(b^2 - 4ac) / 2a
     // notice that constant_term = -c, therefore, we get
     // sqrt(quadratic_term + 4 * quadratic_term * constant_term)
-    let sqrt_discriminator = b_squared
+    let sqrt_discriminator = b
+        .try_pow(2)?
         .try_add(
-            LargeDecimal::from(4_u64)
-                .try_mul(quadratic_term.clone())?
+            Decimal::from(4_u64)
+                .try_mul(quadratic_term)?
                 .try_mul(constant_term)?,
         )?
-        .try_sqrt()?
-        .try_div(LargeDecimal::from(2_u64).try_mul(quadratic_term.clone())?)?;
+        .try_sqrt()?;
 
     // finally, the root of the polynomial is given by
     // (sqrt(b^2 - 4ac) - b) / 2a
@@ -83,25 +91,31 @@ pub fn compute_positive_root_quadratic_polynomial(
     // c = - c', where c' is positive and a is also positive
     // sqrt(b^2 + 4ac') / 2a > sqrt(b^2) / 2a = b / 2a
     // thus, (sqrt(b^2 + 4ac') - b) / 2a > 0
-    let two_a = LargeDecimal::from(2_u64).try_mul(quadratic_term)?;
-    sqrt_discriminator.try_add(
-        linear_first_term
-            .try_sub(linear_second_term)?
-            .try_div(two_a)?,
-    )
+    let two_a = Decimal::from(2_u64).try_mul(quadratic_term)?;
+
+    if is_symmetric {
+        sqrt_discriminator
+            .try_add(b)?
+            .try_div(two_a)?
+            .try_mul(Decimal::from(1_000u64).try_pow(exp as u64)?)
+    } else {
+        sqrt_discriminator
+            .try_sub(b)?
+            .try_div(two_a)?
+            .try_mul(Decimal::from(1_000u64).try_pow(exp as u64)?)
+    }
 }
 
-/// this function computes the amount of quote
+/// this function computes the amount of base
 /// token being bought by the user, after a
 /// swap.
-pub fn compute_delta_quote_token_amount(
-    quote_token_balance_after_swap: LargeDecimal,
+pub fn compute_delta_withdraw_token_amount(
+    quote_token_balance_after_swap: Decimal,
     tokens_reserves: BTreeMap<Pubkey, TokenAmount>,
     quote_token_mint: Pubkey,
-) -> Result<LargeDecimal> {
-    quote_token_balance_after_swap.try_sub(LargeDecimal::from(
-        tokens_reserves.get(&quote_token_mint).unwrap().amount,
-    ))
+) -> Result<Decimal> {
+    Decimal::from(tokens_reserves.get(&quote_token_mint).unwrap().amount)
+        .try_sub(quote_token_balance_after_swap)
 }
 
 #[cfg(test)]
@@ -120,17 +134,17 @@ mod tests {
         .into_iter()
         .collect::<BTreeMap<Pubkey, TokenAmount>>();
 
-        let quote_token_deposit_amount_after_swap = LargeDecimal::from(15_u64);
+        let quote_token_deposit_amount_after_swap = Decimal::from(5_u64);
         let quote_token_mint = mint2;
 
         assert_eq!(
-            compute_delta_quote_token_amount(
+            compute_delta_withdraw_token_amount(
                 quote_token_deposit_amount_after_swap,
                 tokens_reserves,
                 quote_token_mint
             )
             .unwrap(),
-            LargeDecimal::from(5_u64)
+            Decimal::from(5_u64)
         )
     }
 
@@ -152,10 +166,10 @@ mod tests {
         // roots = np.roots([a, b, c])
 
         let num_reserves = 2;
-        let amp = LargeDecimal::from(10_u64);
-        let d = LargeDecimal::from_scaled_val(105329717000);
-        let sum = LargeDecimal::from(50_u64);
-        let product = LargeDecimal::from(50_u64);
+        let amp = Decimal::from(10_u64);
+        let d = Decimal::from_scaled_val(105329717000000000000);
+        let sum = Decimal::from(50_u64);
+        let product = Decimal::from(50_u64);
 
         let root = compute_positive_root_quadratic_polynomial(
             num_reserves,
@@ -166,6 +180,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(root, LargeDecimal::from_scaled_val(55336168642));
+        assert_eq!(root, Decimal::from_scaled_val(55336168643134277756));
     }
 }

@@ -9,6 +9,7 @@ import * as putDiscount from "./endpoints/put-discount";
 import * as setPoolSwapFee from "./endpoints/set-pool-swap-fee";
 import * as depositLiquidity from "./endpoints/deposit-liquidity";
 import * as redeemLiquidity from "./endpoints/redeem-liquidity";
+import * as swap from "./endpoints/swap";
 
 import { airdrop, provider } from "../helpers";
 
@@ -20,6 +21,7 @@ describe("amm", () => {
   setPoolSwapFee.test();
   depositLiquidity.test();
   redeemLiquidity.test();
+  swap.test();
 
   before("airdrop SOL to provider wallet", async () => {
     await airdrop(provider.wallet.publicKey);

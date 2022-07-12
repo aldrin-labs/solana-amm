@@ -13,7 +13,7 @@ fn works() -> Result<()> {
     assert!(test.set_pool_swap_fee(fee).is_ok());
 
     let pool = Pool::try_deserialize(&mut test.pool.data.as_slice())?;
-    assert_eq!(pool.fee, fee);
+    assert_eq!(pool.swap_fee, fee);
 
     Ok(())
 }
@@ -26,7 +26,7 @@ fn max_swap_fee_is_inclusive() -> Result<()> {
     assert!(test.set_pool_swap_fee(consts::MAX_SWAP_FEE).is_ok());
 
     let pool = Pool::try_deserialize(&mut test.pool.data.as_slice())?;
-    assert_eq!(pool.fee, consts::MAX_SWAP_FEE);
+    assert_eq!(pool.swap_fee, consts::MAX_SWAP_FEE);
 
     Ok(())
 }

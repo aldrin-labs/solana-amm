@@ -24,7 +24,7 @@ pub fn handle(ctx: Context<SetPoolSwapFee>, fee: Permillion) -> Result<()> {
         ),)));
     }
 
-    accs.pool.fee = fee;
+    accs.pool.swap_fee = fee;
 
     Ok(())
 }

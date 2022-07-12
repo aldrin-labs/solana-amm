@@ -69,4 +69,12 @@ pub mod amm {
             min_amount_tokens,
         )
     }
+
+    pub fn swap<'info>(
+        ctx: Context<'_, '_, '_, 'info, Swap<'info>>,
+        sell: TokenAmount,
+        min_buy: TokenAmount,
+    ) -> Result<()> {
+        endpoints::swap::handle(ctx, sell, min_buy)
+    }
 }

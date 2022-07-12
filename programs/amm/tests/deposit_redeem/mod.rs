@@ -122,7 +122,6 @@ impl Tester {
     ) -> Result<()> {
         let mut pool = Pool::try_deserialize(&mut self.pool.data.as_slice())?;
         let lp_mint = Mint::unpack(&mut self.lp_mint.data.as_slice())?;
-
         let DepositResult {
             lp_tokens_to_distribute,
             tokens_to_deposit,

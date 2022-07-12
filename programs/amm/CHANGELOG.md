@@ -6,6 +6,17 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] 2022-07-08
+
+### Changed
+
+- The pool's property `fee` was renamed to `swap_fee`.
+
+### Added
+
+- Endpoint to perform a swap.
+- Program's toll share is set to a third of the pool's fee.
+
 ## [0.4.8] 2022-08-08
 
 ### Fixed
@@ -52,7 +63,9 @@ Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 
 ## [0.4.4] 2022-07-06
 
-- Added logic to compute the amount of tokens to obtain after a `swap`
+### Added
+
+- Logic to compute the amount of tokens to obtain after a `swap`
   operation.
 
 ## [0.4.3] - 20022-07-04

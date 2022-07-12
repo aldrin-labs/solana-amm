@@ -1,19 +1,39 @@
 use crate::prelude::*;
 
-pub fn fold_product(values: &[LargeDecimal]) -> Result<LargeDecimal> {
+pub fn fold_product(values: &[Decimal]) -> Result<Decimal> {
     let result = values
         .iter()
-        .try_fold(LargeDecimal::one(), |acc, el| acc.try_mul(el))?;
+        .try_fold(Decimal::one(), |acc, el| acc.try_mul(*el))?;
 
     Ok(result)
 }
 
-pub fn fold_sum(values: &[LargeDecimal]) -> Result<LargeDecimal> {
+pub fn fold_sum(values: &[Decimal]) -> Result<Decimal> {
     let result = values
         .iter()
-        .try_fold(LargeDecimal::zero(), |acc, el| acc.try_add(el))?;
+        .try_fold(Decimal::zero(), |acc, el| acc.try_add(*el))?;
 
     Ok(result)
+}
+
+pub struct ScaleDownOutput {
+    pub scale_down: Decimal,
+    pub exponent: u32,
+}
+
+pub fn scale_down_value(mut val: Decimal) -> Result<ScaleDownOutput> {
+    let mut n = 0u32;
+    let bound = Decimal::from(1000u64);
+
+    while val > bound {
+        val = val.try_div(Decimal::from(1000u64))?;
+        n += 1u32;
+    }
+
+    Ok(ScaleDownOutput {
+        scale_down: val,
+        exponent: n,
+    })
 }
 
 /// This function receives a number in Decimal type form and will return the
@@ -39,8 +59,7 @@ pub fn fold_sum(values: &[LargeDecimal]) -> Result<LargeDecimal> {
 /// This function returns a tuple Result of (u64, bool) representing the
 /// exponent and its sign (positive if true, negative if false)
 fn find_exponent(num: Decimal) -> Result<(u64, bool)> {
-    let num = num.to_scaled_val().unwrap();
-    let exponent_in_decimal = num.to_string().chars().count() as u64;
+    let exponent_in_decimal = num.0.to_string().chars().count() as u64;
 
     if exponent_in_decimal >= 19 {
         // In case the number is above or equal to 1, which means the exponent
@@ -203,6 +222,12 @@ mod tests {
         assert_eq!(exponent, 2_u64);
         assert_eq!(is_bigger_than_or_eq_one, true);
 
+        let num = Decimal::from(1_000u128);
+        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+
+        assert_eq!(exponent, 3_u64);
+        assert_eq!(is_bigger_than_or_eq_one, true);
+
         let num = Decimal::from(100_000_000_u64);
         let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
 
@@ -237,12 +262,32 @@ mod tests {
         assert_eq!(exponent, 2_u64);
         assert_eq!(is_bigger_than_or_eq_one, false);
 
+        // 1_000 => 0.000_000_000_000_001
+        let num = Decimal::from_scaled_val(1_000u128);
+        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+
+        assert_eq!(exponent, 15_u64);
+        assert_eq!(is_bigger_than_or_eq_one, false);
+
         // 1 => 0.000_000_000_000_000_001
         let num = Decimal::from_scaled_val(1u128);
         let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
 
         assert_eq!(exponent, 18_u64);
         assert_eq!(is_bigger_than_or_eq_one, false);
+
+        // Tesing very large amounts
+        let num = Decimal::from(u64::MAX / 2);
+        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+
+        assert_eq!(exponent, 18_u64);
+        assert_eq!(is_bigger_than_or_eq_one, true);
+
+        let num = Decimal::from(u128::MAX / 2);
+        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+
+        assert_eq!(exponent, 38_u64);
+        assert_eq!(is_bigger_than_or_eq_one, true);
 
         Ok(())
     }

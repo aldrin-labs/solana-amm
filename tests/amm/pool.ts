@@ -13,7 +13,7 @@ import {
   SystemProgram,
 } from "@solana/web3.js";
 import { airdrop, amm, payer, provider } from "../helpers";
-import { createProgramToll, programTollAddress } from "./amm";
+import { createProgramToll, discountAddress, programTollAddress } from "./amm";
 import { BN } from "@project-serum/anchor";
 
 export interface DepositLiquidityArgs {
@@ -155,9 +155,9 @@ export class Pool {
       const mint1 = fetchPool.reserves[0].mint;
       const mint2 = fetchPool.reserves[1].mint;
 
-      const amountTokens: { mint: PublicKey, tokens: { amount: BN } }[] = [];
-      amountTokens.push({ mint: mint1, tokens: { amount: new BN(100) }});
-      amountTokens.push({mint: mint2, tokens: { amount: new BN(10) }});
+      const amountTokens: { mint: PublicKey; tokens: { amount: BN } }[] = [];
+      amountTokens.push({ mint: mint1, tokens: { amount: new BN(100) } });
+      amountTokens.push({ mint: mint2, tokens: { amount: new BN(10) } });
 
       return maxAmountTokens;
     };
@@ -335,6 +335,38 @@ export class Pool {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .remainingAccounts(vaultsAndWallets)
+      .signers([user])
+      .rpc();
+  }
+
+  public async swap(
+    user: Keypair,
+    sellWallet: PublicKey,
+    buyWallet: PublicKey,
+    sell: number,
+    minBuy: number
+  ) {
+    const pool = await this.fetch();
+    const getVaultOfWallet = async (wallet: PublicKey) => {
+      const { mint } = await getAccount(provider.connection, wallet);
+      const reserves = pool.reserves as any[];
+      return reserves.find((r) => r.mint.toBase58() === mint.toBase58()).vault;
+    };
+
+    await amm.methods
+      .swap({ amount: new BN(sell) }, { amount: new BN(minBuy) })
+      .accounts({
+        user: user.publicKey,
+        discount: discountAddress(user.publicKey),
+        sellWallet,
+        sellVault: await getVaultOfWallet(sellWallet),
+        buyWallet,
+        buyVault: await getVaultOfWallet(buyWallet),
+        pool: this.id.publicKey,
+        poolSigner: this.signerPda(),
+        programTollWallet: pool.programTollWallet,
+        lpMint: pool.mint,
+      })
       .signers([user])
       .rpc();
   }
