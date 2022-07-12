@@ -4,6 +4,7 @@
 //! need to be redeem, given the amount of LP tokens the user wants to burn,
 //! such that the redemption respects the current pool ratio.
 
+use crate::misc::print_lp_supply;
 use crate::prelude::*;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
@@ -186,6 +187,8 @@ pub fn handle<'info>(
 
     // no-op if const prod
     accs.pool.update_curve_invariant()?;
+
+    print_lp_supply(&mut accs.lp_mint)?;
 
     Ok(())
 }

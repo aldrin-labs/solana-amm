@@ -586,6 +586,54 @@ fn fails_if_lp_mint_supply_is_zero() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[serial]
+fn prints_lp_token_supply() -> Result<()> {
+    let pool_before = Pool {
+        dimension: 2,
+        program_toll_wallet: Pubkey::new_unique(),
+        swap_fee: Permillion::from_percent(9),
+        reserves: create_two_reserves(
+            TokenAmount::new(20_000),
+            TokenAmount::new(20_000),
+        ),
+        ..Default::default()
+    };
+
+    let mut test = Tester::no_discount(pool_before.clone());
+
+    let supply_before = test.lp_supply();
+
+    let syscalls = test.swap(
+        TokenAmount::new(10_000),
+        TokenAmount::new(6_000),
+        pool_before.reserves[0].mint,
+        pool_before.reserves[1].mint,
+    )?;
+
+    let mut pool_after = test.pool_copy();
+
+    assert_eq!(pool_after.reserves[0].tokens.amount, 29_100);
+    assert_eq!(pool_after.reserves[1].tokens.amount, 13_746);
+
+    // only these 3 values can change
+    pool_after.reserves[0].tokens = pool_before.reserves[0].tokens;
+    pool_after.reserves[1].tokens = pool_before.reserves[1].tokens;
+    pool_after.curve = pool_before.curve;
+    assert_eq!(pool_before, pool_after);
+
+    let supply_after = test.lp_supply();
+
+    assert_eq!(supply_before + 51, supply_after);
+
+    let logs = syscalls.logs();
+    assert!(logs
+        .into_iter()
+        .any(|log| log == format!("lp-supply={}", supply_after)));
+
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct Tester {
     time: Slot,
@@ -730,7 +778,7 @@ impl Tester {
         min_buy: TokenAmount,
         sell_mint: Pubkey,
         buy_mint: Pubkey,
-    ) -> Result<()> {
+    ) -> Result<stub::Syscalls<CpiValidator>> {
         // we set it to done initially just so that we can set the slot, will
         // overwrite it later
         self.set_syscalls(CpiValidatorState::Done);
@@ -778,7 +826,7 @@ impl Tester {
                 next_cpi: mint_toll,
             },
         };
-        let state = self.set_syscalls(state);
+        let syscalls = self.set_syscalls(state);
 
         let mut ctx = self.context_wrapper();
         let mut accounts = ctx.accounts()?;
@@ -786,9 +834,11 @@ impl Tester {
         swap(ctx.build(&mut accounts), sell, min_buy)?;
         accounts.exit(&amm::ID)?;
 
+        let CpiValidator(state) =
+            (*syscalls.validator().lock().unwrap()).clone();
         assert_eq!(*state.lock().unwrap(), CpiValidatorState::Done);
 
-        Ok(())
+        Ok(syscalls)
     }
 
     fn context_wrapper(&mut self) -> ContextWrapper {
@@ -809,15 +859,17 @@ impl Tester {
     fn set_syscalls(
         &self,
         state: CpiValidatorState,
-    ) -> Arc<Mutex<CpiValidatorState>> {
+    ) -> stub::Syscalls<CpiValidator> {
         let state = Arc::new(Mutex::new(state));
-        stub::Syscalls::new(CpiValidator(Arc::clone(&state)))
-            .slot(self.time.slot)
-            .set();
-        state
+        let syscalls = stub::Syscalls::new(CpiValidator(Arc::clone(&state)));
+        syscalls.slot(self.time.slot);
+        syscalls.clone().set();
+
+        syscalls
     }
 }
 
+#[derive(Debug, Clone)]
 struct CpiValidator(Arc<Mutex<CpiValidatorState>>);
 #[derive(Debug, Eq, PartialEq)]
 enum CpiValidatorState {

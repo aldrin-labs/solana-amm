@@ -6,6 +6,7 @@
 //! When a [`Pool`] is created by an admin, the amount of LP tokens to be
 //! minted corresponds to the minimum value of tokens deposited.
 
+use crate::misc::print_lp_supply;
 use crate::prelude::*;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
@@ -182,6 +183,8 @@ pub fn handle<'info>(
     )?;
 
     accs.pool.update_curve_invariant()?;
+
+    print_lp_supply(&mut accs.lp_mint)?;
 
     Ok(())
 }

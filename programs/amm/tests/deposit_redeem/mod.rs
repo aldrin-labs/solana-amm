@@ -119,7 +119,7 @@ impl Tester {
         &mut self,
         max_amount_tokens: BTreeMap<Pubkey, TokenAmount>,
         reserves: &[Reserve],
-    ) -> Result<()> {
+    ) -> Result<stub::Syscalls<CpiValidator>> {
         let mut pool = Pool::try_deserialize(&mut self.pool.data.as_slice())?;
         let lp_mint = Mint::unpack(&mut self.lp_mint.data.as_slice())?;
         let DepositResult {
@@ -157,7 +157,7 @@ impl Tester {
                 )
             })
             .collect();
-        let state = self.set_syscalls(CpiValidatorState::Deposit {
+        let syscalls = self.set_syscalls(CpiValidatorState::Deposit {
             user: self.user.key,
             transfers,
             next_cpi: MintLpTokens {
@@ -179,8 +179,11 @@ impl Tester {
         deposit_liquidity(ctx.build(&mut accounts), max_amount_tokens)?;
         accounts.exit(&amm::ID)?;
 
+        let CpiValidator(state) =
+            (*syscalls.validator().lock().unwrap()).clone();
         assert_eq!(*state.lock().unwrap(), CpiValidatorState::Done);
-        Ok(())
+
+        Ok(syscalls)
     }
 
     pub fn redeem_liquidity(
@@ -188,7 +191,7 @@ impl Tester {
         min_amount_tokens: BTreeMap<Pubkey, TokenAmount>,
         lp_tokens_to_burn: TokenAmount,
         reserves: &[Reserve],
-    ) -> Result<()> {
+    ) -> Result<stub::Syscalls<CpiValidator>> {
         let mut pool = Pool::try_deserialize(&mut self.pool.data.as_slice())?;
         let lp_mint = Mint::unpack(&mut self.lp_mint.data.as_slice())?;
         let tokens_to_redeem = pool
@@ -232,7 +235,7 @@ impl Tester {
                 )
             })
             .collect();
-        let state = self.set_syscalls(CpiValidatorState::Redeem {
+        let syscalls = self.set_syscalls(CpiValidatorState::Redeem {
             pool_signer: self.pool_signer.key,
             transfers,
             next_cpi: BurnLpTokens {
@@ -258,9 +261,11 @@ impl Tester {
         )?;
         accounts.exit(&amm::ID)?;
 
+        let CpiValidator(state) =
+            (*syscalls.validator().lock().unwrap()).clone();
         assert_eq!(*state.lock().unwrap(), CpiValidatorState::Done);
 
-        Ok(())
+        Ok(syscalls)
     }
 
     fn context_wrapper(&mut self) -> ContextWrapper {
@@ -277,17 +282,20 @@ impl Tester {
     fn set_syscalls(
         &self,
         state: CpiValidatorState,
-    ) -> Arc<Mutex<CpiValidatorState>> {
-        let state = Arc::new(Mutex::new(state));
-        stub::Syscalls::new(CpiValidator(Arc::clone(&state))).set();
-        state
+    ) -> stub::Syscalls<CpiValidator> {
+        let validator = CpiValidator(Arc::new(Mutex::new(state)));
+        let syscalls = stub::Syscalls::new(validator);
+        syscalls.clone().set();
+
+        syscalls
     }
 }
 
-struct CpiValidator(Arc<Mutex<CpiValidatorState>>);
+#[derive(Clone, Debug)]
+pub struct CpiValidator(Arc<Mutex<CpiValidatorState>>);
 
 #[derive(Debug, PartialEq, Eq)]
-enum CpiValidatorState {
+pub enum CpiValidatorState {
     Deposit {
         user: Pubkey,
         transfers: Vec<(Pubkey, Pubkey, TokenAmount)>,
@@ -304,7 +312,7 @@ enum CpiValidatorState {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct MintLpTokens {
+pub struct MintLpTokens {
     mint: Pubkey,
     destination: Pubkey,
     pool_signer: Pubkey,
@@ -312,7 +320,7 @@ struct MintLpTokens {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct BurnLpTokens {
+pub struct BurnLpTokens {
     mint: Pubkey,
     source: Pubkey,
     user: Pubkey,

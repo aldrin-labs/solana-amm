@@ -6,10 +6,10 @@
 //! associated with this user. A fraction of the swap fee is sent to program
 //! owner's wallet in LP tokens.
 
-use std::collections::BTreeMap;
-
+use crate::misc::print_lp_supply;
 use crate::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
+use std::collections::BTreeMap;
 
 #[derive(Accounts)]
 pub struct Swap<'info> {
@@ -162,6 +162,8 @@ pub fn handle(
             toll_in_lp_tokens.amount,
         )?;
     }
+
+    print_lp_supply(&mut accs.lp_mint)?;
 
     Ok(())
 }

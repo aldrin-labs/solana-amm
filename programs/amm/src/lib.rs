@@ -2,6 +2,7 @@ pub mod consts;
 pub mod endpoints;
 pub mod err;
 pub mod math;
+pub mod misc;
 pub mod models;
 pub mod prelude;
 
