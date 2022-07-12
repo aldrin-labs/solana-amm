@@ -15,12 +15,12 @@ export function test() {
       const pool = await Pool.init();
 
       const infoBefore = await pool.fetch();
-      expect(infoBefore.fee.permillion.toNumber()).to.eq(0);
+      expect(infoBefore.swapFee.permillion.toNumber()).to.eq(0);
 
       await pool.setSwapFee(5_000);
 
       const infoAfter = await pool.fetch();
-      expect(infoAfter.fee.permillion.toNumber()).to.eq(5_000);
+      expect(infoAfter.swapFee.permillion.toNumber()).to.eq(5_000);
     });
   });
 }

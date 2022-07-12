@@ -278,7 +278,7 @@ fn pool_is_correctly_updated_const_prod_case() -> Result<()> {
     );
 
     assert_eq!(pool_end_state.curve, pool_og_state.curve);
-    assert_eq!(pool_end_state.fee, pool_og_state.fee);
+    assert_eq!(pool_end_state.swap_fee, pool_og_state.swap_fee);
 
     Ok(())
 }
@@ -331,7 +331,7 @@ fn pool_is_correctly_updated_stable_curve_case() -> Result<()> {
             invariant: SDecimal::from(200_u64)
         }
     );
-    assert_eq!(pool_end_state.fee, pool_og_state.fee);
+    assert_eq!(pool_end_state.swap_fee, pool_og_state.swap_fee);
 
     Ok(())
 }

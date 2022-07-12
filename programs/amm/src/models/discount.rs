@@ -54,4 +54,9 @@ impl Discount {
 
         discriminant + amount + valid_until
     }
+
+    pub fn does_apply(&self) -> Result<bool> {
+        let time = Slot::current()?;
+        Ok(self.amount.permillion > 0 && time <= self.valid_until)
+    }
 }

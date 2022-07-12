@@ -4,6 +4,7 @@
 //! https://en.wikipedia.org/wiki/Newton%27s_method
 
 use crate::prelude::*;
+use helpers::scale_down_value;
 
 // The method should converge within few iterations, due to the fact
 // we are approximating positive root from a well positioned first
@@ -104,7 +105,6 @@ impl StableCurveInvariant {
         for _ in 0..MAX_ITERATIONS {
             prev_val = new_val;
             new_val = self.newton_method_single_iteration(&prev_val)?;
-
             // We proved by algebraic manipulations that given a first initial
             // guess coinciding with the sum of token reserve
             // balances, then sum(x_i) >= positive_zero where
@@ -188,26 +188,6 @@ impl StableCurveInvariant {
 
         first_term.try_add(second_term)
     }
-}
-
-struct ScaleDownOutput {
-    scale_down: Decimal,
-    exponent: u32,
-}
-
-fn scale_down_value(mut val: Decimal) -> Result<ScaleDownOutput> {
-    let mut n = 0u32;
-    let bound = Decimal::from(1000u64);
-
-    while val > bound {
-        val = val.try_div(Decimal::from(1000u64))?;
-        n += 1u32;
-    }
-
-    Ok(ScaleDownOutput {
-        scale_down: val,
-        exponent: n,
-    })
 }
 
 #[cfg(test)]

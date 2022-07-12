@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "amm"
-version = "0.4.8"
+version = "0.5.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -228,8 +228,8 @@ dependencies = [
 
 [[package]]
 name = "anchortest"
-version = "0.3.0"
-source = "git+https://github.com/aldrin-exchange/solana-anchortest?tag=0.3.0#20db88f4499d939491e96ca96a05a7402e857e86"
+version = "0.3.1"
+source = "git+https://github.com/aldrin-exchange/solana-anchortest?tag=0.3.1#e36ee1eedd3b0bf423f03e153e086b760341150b"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -745,8 +745,8 @@ dependencies = [
 
 [[package]]
 name = "decimal"
-version = "0.1.1"
-source = "git+https://github.com/aldrin-exchange/solana-decimal?tag=0.1.1#bb11bd0b476f22813e23d7e44c3a3adcfb142439"
+version = "0.1.2"
+source = "git+https://github.com/aldrin-exchange/solana-decimal?tag=0.1.2#f3f15bc47343dc0795f2324d352f73f5b8ad7044"
 dependencies = [
  "anchor-lang",
  "uint",
@@ -879,7 +879,7 @@ version = "2.1.1"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "decimal 0.1.1",
+ "decimal 0.1.2",
  "serial_test",
  "solana-sdk",
 ]
