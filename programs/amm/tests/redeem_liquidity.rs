@@ -770,3 +770,34 @@ fn fails_if_at_least_one_wrong_vault_is_provided() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[serial]
+fn prints_lp_token_supply_in_redeem_and_deposit_liquidity() -> Result<()> {
+    let (mut tester, reserves) = Tester::new_const_prod(2);
+
+    let syscalls = tester.deposit_liquidity(
+        reserves
+            .iter()
+            .map(|r| (r.mint, TokenAmount::new(10)))
+            .collect(),
+        &reserves,
+    )?;
+
+    let logs = syscalls.logs();
+    assert!(logs.iter().any(|log| log.as_str() == "lp-supply=10"));
+
+    let syscalls = tester.redeem_liquidity(
+        reserves
+            .iter()
+            .map(|r| (r.mint, TokenAmount::new(5)))
+            .collect(),
+        TokenAmount::new(5),
+        &reserves,
+    )?;
+
+    let logs = syscalls.logs();
+    assert!(logs.iter().any(|log| log.as_str() == "lp-supply=5"));
+
+    Ok(())
+}

@@ -255,9 +255,11 @@ impl Tester {
         state: CpiValidatorState,
     ) -> Arc<Mutex<CpiValidatorState>> {
         let state = Arc::new(Mutex::new(state));
-        stub::Syscalls::new(CpiValidator(Arc::clone(&state)))
-            .slot(self.slot)
-            .set();
+
+        let syscalls = stub::Syscalls::new(CpiValidator(Arc::clone(&state)));
+        syscalls.slot(self.slot);
+        syscalls.set();
+
         state
     }
 }
