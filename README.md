@@ -12,6 +12,258 @@
 - [Rust docs][amm-rust-docs]
 - [Changelog][amm-changelog]
 
+The design of the current AMM supports both constant product curve liquidity
+pools as well as stable swap curve liquidity pools. Pools can be Constant
+Product Curves or StableSwap Curves.
+
+## Constant Product curve
+
+The Constant Product Curve is the following:
+
+```math
+\prod_{i=1}^{n} x_i = k
+```
+
+Where $`x_i`$ represents the amount of token $`i`$ and $`k`$ a given invariant.
+The most ubiquitous case for a constant product curve pool is the 2-dimensional
+pool:
+
+```math
+xy = k
+```
+
+See [this document](docs/CURVE_CONST_PROD.md) for more detailed derivations.
+
+### Providing liquidity
+
+At an initial stage, the pool is empty and therefore the first liquidity
+injection will define the initial price discovery.
+The other way is to look at this in a more generalized way, such that:
+
+```math
+\frac{\Delta x_i}{\sum_{i=1}^{n} \Delta x_i} = \frac{x_i}{\sum_{i=1}^{n} x_i}
+```
+
+Therefore, the liquidity provided for each token in the pool should be
+proportional to the weight of such token reserve in the entire pool, and hence
+under this condition, the act of providing liquidity has no impact on the price
+discovery. As of now, if a liquidity providers wants to rebalance a pool it
+will have to swap with the pool in order to achieve the desired balance first
+and only then deposit liquidity . Protocols such as Balancer do it differently,
+in that they allow liquidity providers to add liquidity at any arbitrary price
+ratio but will reward/penalize users that balance/unbalance the pool by minting
+more/less LP tokens. This has the effect of incentivizing liquidity providers
+to re-balance the pool.
+
+Upon providing liquidity, the invariant will have to be recomputed:
+
+```math
+k_{t+1} = \prod_{i=1}^{n}(x_i + \Delta x_i)
+```
+
+To conclude, injecting liquidity:
+
+- In the same proportion will shift the constant product curve
+  upwards/rightwards
+- If the proportions are different then not only it moves the curve it also
+  moves the point at which the pool is in the curve. However as mentioned this
+  can only be achieved with some form of swap following the deposit.
+
+### Swapping
+
+Whilst injecting liquidity changes the invariant $`k`$, swapping with the pool
+does not have any impact on $`k`$.
+
+In the 2-dimensional case we can treat $`x`$ as the base token (e.g. SOL) and
+$`y`$ as the quote token (e.g. USDC).
+
+In order to buy $`x`$ the trader will have to sell $`y`$.
+
+## Stable Swap Curve
+
+Stable Swap curves are a dynamic hybrid between Constant Product Curves and
+Constant Sum Curves. Constant Sum Curves are useful for trading two or more
+tokens which their value is pegged to each other. By being pegged, we expect
+its prices to be tightly locked with each other and that is what Constant Sum
+Curve provides: A pool which the prices between n-tokens is fixed. However,
+this curve has a fatal problem, in that it does not asymptotically trend
+towards infinite, which in practice means that any given token in the liquidity
+pool can be completely drained from the pool. To avoid this, Stable Swap Curves
+are dynamic in that when reserves of a given token start becoming shallower the
+curve adjusts its curvature dynamically to become more like the Constant
+Product Curve.
+
+See [this document](docs/CURVE_STABLE.md) for more detailed derivations.
+
+```math
+\sum_{i=1}^{n}x_i + \prod_{i=1}^{n}x_i = D + \left( \frac {D}{n} \right)^n
+```
+
+We want to essentially increase the curvature of our stable curve whenever the
+pool starts to lose balance. In order to make that, we need $`\chi`$ to shrink
+whenever a given reserve is being drained, in respect to others, which will
+essentially allow the curve to shape itself increasingly more like a constant
+product curve (i.e. with more curvature).
+
+```math
+An^n\sum_{i=1}^{n}x_i + D = An^nD+\frac{D^{n+1}}{n^n\prod_{i=1}^{n}x_i}
+```
+
+And put all the terms to the right, and get the following equation:
+
+```math
+0 = D^{n+1}\frac{1}{n^n\prod_{i=1}^{n}x_i} + D(n^nA -1) - An^n\sum_{i=1}^{n}x_i
+```
+
+Which is a $`n+1`$ polynomial equation:
+
+```math
+0 = ax^{n+1} + bx - d
+```
+
+### Providing liquidity
+
+A stable swap pools is instantiated by setting the parameter $`A`$, which we
+will call the amplifier parameter.
+
+At an initial stage, the pool is empty and therefore in the first liquidity
+injection we will set the initial weights of the pool. The vanilla case is to
+have equal weighting distributed across all token reserves, however this is not
+enforcer by the protocol. Nevertheless, the protocol enforces all liquidity
+injections beyond the first deposit to have no effect on price action. This
+means that users will be allowed to deposit liquidity at the current reserve
+ratios, hence the only way to impact price action is through performing swap
+transactions instead.
+
+This is a cubic polynomial with one real root, which is positive. To
+solve this we will use numerical approximation. At perfect balance, the curve
+is linear, therefore it is extremely efficient to perform numerical
+approximation. As the pools moves away from balance the curve starts gaining
+curvature, nevertheless due to its monotonicity and lack of root multiplicity
+the Newton-Raphson is still very efficient, in that it does not require many
+iterations to reach the root.
+
+### Swapping
+
+Whilst injecting liquidity changes the invariant $D$, swapping with the pool
+does not impact $D$. We do however need to calculate what is the amount being
+bought from the pool given the amount the trader is willing to sell.
+
+```math
+0 = D^{n+1}\frac{1}{n^n\prod_{i=1}^{n}x_i} + D(n^nA -1) - An^n\sum_{i=1}^{n}x_i
+```
+
+## Deposit Liquidity
+
+We start with a following pool reserve state:
+
+```math
+\vec{x}=\begin{bmatrix}  x_1 \\ x_2 \\ ... \\ x_n \end{bmatrix}
+```
+
+and the following $`max_tokens`$ vector:
+
+```math
+\vec{t}=\begin{bmatrix}  t_1 \\ t_2 \\ ... \\ t_n \end{bmatrix}
+```
+
+1. Calculate the prices of all tokens by choosing the cheapest token to be the
+   quote for all prices. The cheapest token is $`min(\vec x)`$. We then compute
+   the vector of parity prices:
+
+```math
+\vec p = \begin{bmatrix}  \frac{min(\vec x)}{x_1}\\ \frac{min(\vec x)}{x_2} \\ ... \\ \frac{min(\vec x)}{x_n} \end{bmatrix}
+```
+
+2. Transform the $`max_tokens`$ vector to denominate all tokens in the parity
+   price:
+
+```math
+\overrightarrow{t_{parity}}=\begin{bmatrix}  t_1 \frac{min(\vec x)}{x_1} \\ t_2 \frac{min(\vec x)}{x_2}\\ ... \\ t_n \frac{min(\vec x)}{x_n} \end{bmatrix} = \begin{bmatrix}  tp_1 \\ tp_2\\ ... \\ tp_n \end{bmatrix}
+```
+
+3. From the max _ tokens_parity_price we pick the lowest amount (that
+   represents the maximum amount of tokens in price parity that the user can
+   deposit for all tokens) → $`min(\overrightarrow{t_{parity}})`$
+
+4. We compute the $`tokens_deposit`$ vector which contains the actual amount of
+   tokens that will be deposited for each mint:
+
+```math
+\overrightarrow{d}=\begin{bmatrix}  t_1 \cdot \frac{min(\overrightarrow{t_{parity}})}{tp_1} \\ t_2 \cdot \frac{min(\overrightarrow{t_{parity}})}{tp_2}\\ ... \\ t_n \cdot \frac{min(\overrightarrow{t_{parity}})}{tp_n} \end{bmatrix}
+```
+
+5. Compute the tokens to mint with a simple rule of three:
+
+```math
+\Delta mint_{lp}= \frac{\Delta x_i \cdot supply_{lp}}{x_i}
+```
+
+where $`i`$ is any arbitrary reserve (e.g. the first in the struct), $`x_i`$
+being the amount of tokens i in the reserve before the deposit, and
+$`supply_{lp}`$ the supply of lp tokens before the new mint.
+
+## Redeem Liquidity
+
+We start with with the following pool reserve state:
+
+```math
+\vec{x}=\begin{bmatrix}  x_1 \\ x_2 \\ ... \\ x_n \end{bmatrix}
+```
+
+and the following scalar $`v`$, representing the lp tokens to give back, and
+the vector `min_tokens`:
+
+```math
+\vec{t}=\begin{bmatrix}  t_1 \\ t_2 \\ ... \\ t_n \end{bmatrix}
+```
+
+1. Compare the scalar $`v`$ to the total lp mint supply $`lp_supply`$ or $`V`$:
+
+```math
+w = \frac{v}{V}
+```
+
+2. Compute the amount of tokens the user is allowed to receive for each reserve:
+
+```math
+\vec{r}=\begin{bmatrix}  x_1\cdot w \\ x_2 \cdot w \\ ... \\ x_n \cdot w\end{bmatrix}
+```
+
+3. Confirm that the following restrictions are met:
+
+```math
+\begin{bmatrix}  x_1\cdot w \geq t_1  \\ x_2 \cdot w \geq t_2 \\ ... \\ x_n  \cdot w \geq t_n \end{bmatrix}
+```
+
+## Implementation details
+
+As our design logic relies heavily on mathematical approximations. A first
+concern is to decide how many decimal places we should allow on our logic.
+Recently, we have agreed upon on 6 decimal places, but this number might change
+in the future, depending on the protocol necessities. Moreover, there is a
+subtle compromise between how large numbers we allow and how precise they are.
+For this reason, our tests show that in the case of pools with 4 token
+reserves, equally balanced deposits of 10bns work fine.
+
+Conceptually, when a given swap occurs the pool reserve amounts are changed
+such that the curve invariant is unchanged. That is a fundamental difference
+between providing liquidity and swapping, hence the name invariant. Due to
+rounding differences however, if we recompute the invariant after a given swap
+it is likely that the invariant will be slightly off the initial value.
+Moreover, if we would recompute the invariant every time a swap occurs the
+difference would accumulate over time and it would interfere with the price
+system. To avoid this we do not recompute the invariant after a swap. The end
+result is that a trader is not able to manipulate the price system, by making
+arbitrarily small trades to alter the invariant and then place a big trade
+whenever the invariant would make his/her trade more favourable. The rounding
+in the pool reserves is made in favour of the pool, since this will necessarily
+invalidate any exploit in favour of an attacker (since rounding always benefit
+the pool, it cannot benefit the attacker). Roundings will very slightly change
+the balance of the pool but their impact on the price system is insignificant,
+and they can self-cancel over time provided that the pool reserves oscillate
+around their desired proportions.
+
 ## Equations
 
 Search for `ref. eq. (x)` to find an equation _x_ in the codebase.
@@ -21,16 +273,34 @@ Search for `ref. eq. (x)` to find an equation _x_ in the codebase.
 | $`A`$   | Stable swap curve amplifier |
 | $`x_i`$ | i-th token deposit amount   |
 | $`D`$   | Stable swap curve invariant |
+| $`x`$   | Amount of token A           |
+| $`y`$   | amount of token B           |
+| $`k`$   | Constant product curve      |
 
 ⌐
+
+The constant product curve equation, for two reserves is given by
+
+```math
+x y = k.
+```
+
+It is fairly straightforward to generalize this equation to multiple token
+reserves,
+
+```math
+\prod_i x_i = k
+```
+
+⊢
 
 The stable swap polynomial is responsible for indexing relative token prices
 with a decentralized AMM liquidity pool. The basic idea is that token prices
 are indexed via a mathematical curve, which corresponds to a variation on the
-hyperbola graph (given by the equation $`xy = k`$, with two reserves).
+hyperbola graph.
 
 ```math
-SSP(D) := \frac{D^{n+1}}{\prod_i x_i} + A D^{n} - D - A n^n \sum_i x_i
+SSP(D) := \frac{D^{n+1}}{n^n \prod_i x_i} + A( n^n - 1) D - A n^n \sum_i x_i
 \tag{1}
 ```
 
@@ -48,7 +318,7 @@ token reserves in the pool.
 Derivative of stable swap polynomial:
 
 ```math
-SSP'(D) := \frac{(n + 1) D^n}{\prod_i x_i} + n A D^{n - 1} - 1
+SSP'(D) := \frac{(n + 1) D^n}{n^n \prod_i x_i} + n^n A - 1
 \tag{2}
 ```
 
