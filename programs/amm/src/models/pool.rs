@@ -728,7 +728,7 @@ impl Pool {
                 // for the base mint
                 let sum = fold_sum(&sold_or_neutral_token_balances_after_swap)?;
 
-                compute_positive_root_quadratic_polynomial(
+                get_buy_reserve_balance_after_swap(
                     num_reserves,
                     &amp,
                     &d,
