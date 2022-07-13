@@ -1,6 +1,6 @@
 [package]
 name = "amm"
-version = "0.5.1"
+version = "0.6.0"
 description = "Deposit liquidity to earn fees and swap between mints"
 edition = "2021"
 
@@ -17,18 +17,18 @@ no-idl = []
 no-log-ix-name = []
 
 [dependencies]
-anchor-lang = "0.24.2"
-anchor-spl = "0.24.2"
-decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.4.0" }
+anchor-lang = "0.25.0"
+anchor-spl = "0.25.0"
+decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.5.0" }
 
 [dev-dependencies]
-anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.4.0" }
+anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.5.0" }
 criterion = "0.3"
 pretty_assertions = "1.2"
 proptest = "1.0"
 rand = "0.8"
 serial_test = "0.6"
-solana-sdk = "1.9.18"
+solana-sdk = "1.10.29"
 
 [[bench]]
 name = "stable_curve_invariant"

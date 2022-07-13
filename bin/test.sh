@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # pin solana
-SOLANA_VERSION="1.9.18"
+SOLANA_VERSION="1.10.29"
 solana --version 2>&1 1>/dev/null || sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
 solana --version | grep "${SOLANA_VERSION}" || solana-install init "${SOLANA_VERSION}"
 

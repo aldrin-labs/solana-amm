@@ -1,6 +1,11 @@
-- Solana v1.9.18
-- Anchor v0.24.2
+- Solana v1.10.29
+- Anchor v0.25.0
 - [Code coverage][project-code-coverage]
+
+# Install
+
+1. `$ yarn` fetches test dependencies
+2. `$ npm run build` builds all programs
 
 # AMM
 
@@ -517,7 +522,7 @@ snapshot ring buffer history:
 
 <!-- List of References -->
 
-[token-program-mint]: https://docs.rs/anchor-spl/0.24.2/anchor_spl/token/struct.Mint.html
+[token-program-mint]: https://docs.rs/anchor-spl/0.25.0/anchor_spl/token/struct.Mint.html
 [project-code-coverage]: https://crypto_project.gitlab.io/defi/amm/coverage
 [fp-rust-docs]: https://crypto_project.gitlab.io/defi/amm/farming
 [fp-changelog]: https://crypto_project.gitlab.io/defi/amm/fp.changelog.html
@@ -526,7 +531,7 @@ snapshot ring buffer history:
 [rin-staking]: https://dex.aldrin.com/staking
 [example-staking-units]: docs/images/staking_units.png
 [snapshot-buffer]: docs/images/snapshot_buffer.png
-[token-program-mint]: https://docs.rs/anchor-spl/0.24.2/anchor_spl/token/struct.Mint.html
+[token-program-mint]: https://docs.rs/anchor-spl/0.25.0/anchor_spl/token/struct.Mint.html
 [snapshot-closed-calc]: docs/images/harvest_calc_past_snapshots.png
 [snapshot-open-calc]: docs/images/harvest_calc_open_snapshot.png
 [snapshot-history]: docs/images/history.png

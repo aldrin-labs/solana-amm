@@ -438,7 +438,7 @@ fn eligible_harvest_until<'a>(
             *farmer_harvest = TokenAmount {
                 amount: farmer_harvest
                     .amount
-                    .checked_add(eligible_harvest.try_floor_u64()?)
+                    .checked_add(eligible_harvest.try_floor()?)
                     .ok_or(FarmingError::MathOverflow)?,
             };
         }

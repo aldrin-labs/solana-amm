@@ -2,7 +2,7 @@ pub use crate::err::{self, FarmingError};
 pub use crate::models::*;
 pub use crate::{consts, endpoints};
 pub use anchor_lang::prelude::*;
-pub use decimal::{Decimal, TryAdd, TryDiv, TryMul};
+pub use decimal::{Decimal, TryAdd, TryDiv, TryMul, TryRound};
 
 #[cfg(test)]
 pub mod utils {
