@@ -11,6 +11,7 @@
 
 - [Rust docs][amm-rust-docs]
 - [Changelog][amm-changelog]
+- [`dAMMP3unWqb4u2La1xczx6JSAZsGByo9amHgzkVY7FG` is dev program][amm-dev-solscan]
 
 The design of the current AMM supports both constant product curve liquidity
 pools as well as stable swap curve liquidity pools. Pools can be Constant
@@ -806,3 +807,4 @@ snapshot ring buffer history:
 [snapshot-open-calc]: docs/images/harvest_calc_open_snapshot.png
 [snapshot-history]: docs/images/history.png
 [fp-dev-solscan]: https://solscan.io/account/DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ
+[amm-dev-solscan]: https://solscan.io/account/dAMMP3unWqb4u2La1xczx6JSAZsGByo9amHgzkVY7FG
