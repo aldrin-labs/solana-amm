@@ -1,6 +1,6 @@
 [programs.localnet]
 farming = "DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ"
-amm = "DammDkC9TSZvYvggRVAwCRcKm1prRkyu84N1Ph6Qckx"
+amm = "dAMMP3unWqb4u2La1xczx6JSAZsGByo9amHgzkVY7FG"
 
 [provider]
 cluster = "localnet"
