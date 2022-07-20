@@ -16,7 +16,7 @@ unit:
         coverage_format: cobertura
         path: target/release/coverage/cobertura.xml
   cache:
-    key: "unit-cache-${CI_COMMIT_BRANCH}"
+    key: "unit-cache-2-${CI_COMMIT_BRANCH}"
     paths:
       - target
   # manual trigger on feature branches to save CI minutes
@@ -34,7 +34,7 @@ program:
   stage: build
   image: registry.gitlab.com/crypto_project/defi/infra/rust-solana:${SOLANA_VERSION}
   cache:
-    key: "program-cache-${CI_COMMIT_BRANCH}"
+    key: "program-cache-2-${CI_COMMIT_BRANCH}"
     paths:
       - target
   artifacts:
