@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { Pool } from "../pool";
 import { AccountMeta, Keypair, PublicKey } from "@solana/web3.js";
 import { createAccount, getAccount } from "@solana/spl-token";
-import { payer, provider, sleep } from "../../helpers";
+import { errLogs, payer, provider, sleep } from "../../helpers";
 import { BN } from "@project-serum/anchor";
 
 export function test() {
@@ -169,7 +169,7 @@ export function test() {
       expect(lpTokenWalletAmount).to.be.deep.eq(BigInt(20));
     });
 
-    it("deposits liquidity on stable swap curve", async () => {
+    it.only("deposits liquidity on stable swap curve", async () => {
       const pool = await Pool.init(10);
 
       const info = await pool.fetch();
@@ -297,12 +297,22 @@ export function test() {
       expect(info).to.be.deep.eq(poolInfo);
 
       // deposit again new tokens and check again quantities
-      await pool.depositLiquidity({
-        maxAmountTokens,
-        vaultsAndWallets,
-        lpTokenWallet,
-        user,
-      });
+      // await pool.depositLiquidity({
+      //   maxAmountTokens,
+      //   vaultsAndWallets,
+      //   lpTokenWallet,
+      //   user,
+      // });
+      console.log(
+        await errLogs(
+          pool.depositLiquidity({
+            maxAmountTokens,
+            vaultsAndWallets,
+            lpTokenWallet,
+            user,
+          })
+        )
+      );
 
       const newDepositVaultAmount1 = (
         await getAccount(provider.connection, poolTokenVaultInfo1.address)

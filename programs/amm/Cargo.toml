@@ -33,3 +33,7 @@ solana-sdk = "1.10.29"
 [[bench]]
 name = "stable_curve_invariant"
 harness = false
+
+[[bench]]
+name = "base_two_exponent"
+harness = false

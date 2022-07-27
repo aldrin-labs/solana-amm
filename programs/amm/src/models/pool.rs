@@ -241,10 +241,15 @@ impl Pool {
 
             (max_tokens, Some(lp_tokens_to_distribute))
         } else {
+            msg!("before get_reserve_parity_prices");
+            anchor_lang::solana_program::log::sol_log_compute_units();
             // pick the token with the lowest pool price and
             // price all other tokens with that denominator
             let reserve_prices: BTreeMap<Pubkey, Decimal> =
                 self.get_reserve_parity_prices()?;
+
+            msg!("after get_reserve_parity_prices");
+            anchor_lang::solana_program::log::sol_log_compute_units();
 
             // Convert max_tokens amounts to denominate in lowest denominated
             // token. Those values will be all comparable
@@ -270,6 +275,9 @@ impl Pool {
             //         "total_parity_price": "2.5",
             //     },
             // }
+
+            msg!("before denominated_tokens");
+            anchor_lang::solana_program::log::sol_log_compute_units();
             let denominated_tokens: BTreeMap<Pubkey, DenominatedToken> =
                 max_tokens
                     .iter()
@@ -288,6 +296,8 @@ impl Pool {
                         ))
                     })
                     .collect::<Result<_>>()?;
+                msg!("after denominated_tokens");
+                anchor_lang::solana_program::log::sol_log_compute_units();
 
             // Get the the max_token that has the lowest deposit amount
             //
@@ -349,26 +359,32 @@ impl Pool {
                         return Err(error!(AmmError::InvariantViolation));
                     }
 
-                    Ok((
-                        mint,
-                        TokenAmount {
-                            amount: try_mul_div(
-                                denominated_token.max_tokens_to_deposit,
-                                lowest_token_deposit_total_parity_price,
-                                denominated_token.total_parity_price,
-                            )?
-                            // we ceil to prevent deposit of 0 tokens
-                            .try_ceil()?,
-                        },
-                    ))
+                    msg!("before try_mul_div");
+                    anchor_lang::solana_program::log::sol_log_compute_units();
+                    let amount = try_mul_div(
+                        denominated_token.max_tokens_to_deposit,
+                        lowest_token_deposit_total_parity_price,
+                        denominated_token.total_parity_price,
+                    )?
+                    // we ceil to prevent deposit of 0 tokens
+                    .try_ceil()?;
+                    msg!("after try_mul_div");
+                    anchor_lang::solana_program::log::sol_log_compute_units();
+
+                    Ok((mint, TokenAmount { amount }))
                 })
                 .collect::<Result<BTreeMap<Pubkey, TokenAmount>>>()?;
 
+            msg!("get_eligible_lp_tokens");
+            anchor_lang::solana_program::log::sol_log_compute_units();
             let lp_tokens_to_distribute = self
                 .get_eligible_lp_tokens(&tokens_to_deposit, lp_mint_supply)?;
 
             (tokens_to_deposit, lp_tokens_to_distribute)
         };
+
+        msg!("before loop");
+        anchor_lang::solana_program::log::sol_log_compute_units();
 
         // mutate the Pool reserve balances
         for (mint, tokens) in &tokens_to_deposit {

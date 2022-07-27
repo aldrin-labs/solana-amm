@@ -105,6 +105,8 @@ pub fn handle<'info>(
     // check that max_amount_tokens have the correct mint pubkeys
     accs.pool.check_amount_tokens_is_valid(&max_amount_tokens)?;
 
+    msg!("before deposit");
+    anchor_lang::solana_program::log::sol_log_compute_units();
     // Get amount of lp tokens to be minted and transferred to user lp token
     // wallet and the amount of tokens that user should deposit on the pool.
     let DepositResult {
@@ -120,6 +122,8 @@ pub fn handle<'info>(
     })?;
 
     // deposit tokens from pool reserves
+    msg!("before for leep");
+    anchor_lang::solana_program::log::sol_log_compute_units();
     for vault_wallet in token_vaults_wallets.chunks(2) {
         let vault: &Account<'info, TokenAccount> = &vault_wallet[0];
         let user_wallet: &Account<'info, TokenAccount> = &vault_wallet[1];
@@ -182,7 +186,12 @@ pub fn handle<'info>(
         lp_tokens_to_distribute.amount,
     )?;
 
+    msg!("before update curve leep");
+    anchor_lang::solana_program::log::sol_log_compute_units();
     accs.pool.update_curve_invariant()?;
+
+    msg!("DUN");
+    anchor_lang::solana_program::log::sol_log_compute_units();
 
     print_lp_supply(&mut accs.lp_mint)?;
 
