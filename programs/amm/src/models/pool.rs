@@ -296,8 +296,8 @@ impl Pool {
                         ))
                     })
                     .collect::<Result<_>>()?;
-                msg!("after denominated_tokens");
-                anchor_lang::solana_program::log::sol_log_compute_units();
+            msg!("after denominated_tokens");
+            anchor_lang::solana_program::log::sol_log_compute_units();
 
             // Get the the max_token that has the lowest deposit amount
             //
