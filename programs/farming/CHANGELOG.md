@@ -6,6 +6,16 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 20022-07-28
+
+### Added
+
+- New account `payer` must be provided as a signer to `create_farmer` endpoint.
+
+### Changed
+
+- `authority` account in `create_farmer` endpoint doesn't have to be a signer.
+
 ## [4.0.0] - 20022-07-28
 
 - Reverting update of anchor back `0.24.2` and Solana to `1.9.18`. The new
