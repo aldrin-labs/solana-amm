@@ -1,12 +1,11 @@
 #!/bin/bash
 
 # pin solana
-SOLANA_VERSION="1.10.29"
+SOLANA_VERSION="1.9.18"
 solana --version 2>&1 1>/dev/null || sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
 solana --version | grep "${SOLANA_VERSION}" || solana-install init "${SOLANA_VERSION}"
 
-if [ -f .env ]
-then
+if [ -f .env ]; then
     export $(cat .env | sed 's/#.*//g' | xargs)
 fi
 
@@ -15,11 +14,13 @@ skip_build=false
 
 while :; do
     case $1 in
-        -d|--detach) detach=true
+    -d | --detach)
+        detach=true
         ;;
-        --skip-build) skip_build=true
+    --skip-build)
+        skip_build=true
         ;;
-        *) break
+    *) break ;;
     esac
     shift
 done
