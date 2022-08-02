@@ -247,11 +247,17 @@ impl Pool {
 
             (max_tokens, Some(lp_tokens_to_distribute))
         } else {
+            msg!("fetching reserves");
+            anchor_lang::solana_program::log::sol_log_compute_units();
             let reserves = self.reserves_hashmap();
 
+            msg!("get_deposit_ratio");
+            anchor_lang::solana_program::log::sol_log_compute_units();
             let (ratio, is_inverted) =
                 Pool::get_deposit_ratio(&reserves, &max_tokens)?;
 
+            msg!("tokens_to_deposit");
+            anchor_lang::solana_program::log::sol_log_compute_units();
             let tokens_to_deposit = reserves
                 .clone()
                 .into_iter()
@@ -274,139 +280,6 @@ impl Pool {
                     Ok((mint, TokenAmount { amount }))
                 })
                 .collect::<Result<BTreeMap<Pubkey, TokenAmount>>>()?;
-
-            println!("tokens to deposit MIN: {:?}", tokens_to_deposit);
-            msg!("before get_reserve_parity_prices");
-            anchor_lang::solana_program::log::sol_log_compute_units();
-            // pick the token with the lowest pool price and
-            // price all other tokens with that denominator
-            // let reserve_prices: BTreeMap<Pubkey, Decimal> =
-            //     self.get_reserve_parity_prices()?;
-
-            // msg!("after get_reserve_parity_prices");
-            // anchor_lang::solana_program::log::sol_log_compute_units();
-
-            // Convert max_tokens amounts to denominate in lowest denominated
-            // token. Those values will be all comparable
-            // struct DenominatedToken {
-            //     max_tokens_to_deposit: Decimal,
-            //     total_parity_price: Decimal,
-            // }
-            // Example:
-            // {
-            //     "mintA" : {
-            //         "max_tokens_to_deposit": "10",
-            //         "parity_price_per_token": "2",
-            //         "total_parity_price": "20",
-            //     },
-            //     "mintB" : {  // this is the quote token
-            //         "max_tokens_to_deposit": "10",
-            //         "parity_price_per_token": "1",
-            //         "total_parity_price": "10",
-            //     },
-            //     "mintC" : { // this is the token to deposit of the least
-            //         "max_tokens_to_deposit": "5",
-            //         "parity_price_per_token": "0.5",
-            //         "total_parity_price": "2.5",
-            //     },
-            // }
-
-            // msg!("before denominated_tokens");
-            // anchor_lang::solana_program::log::sol_log_compute_units();
-            // let denominated_tokens: BTreeMap<Pubkey, DenominatedToken> =
-            //     max_tokens
-            //         .iter()
-            //         .map(|(mint, tokens)| {
-            //             let parity_price_per_token = *reserve_prices
-            //                 .get(mint)
-            //                 .ok_or(AmmError::InvariantViolation)?;
-
-            //             Ok((
-            //                 *mint,
-            //                 DenominatedToken {
-            //                     max_tokens_to_deposit: (*tokens).into(),
-            //                     total_parity_price: Decimal::from(*tokens)
-            //                         .try_mul(parity_price_per_token)?,
-            //                 },
-            //             ))
-            //         })
-            //         .collect::<Result<_>>()?;
-            // msg!("after denominated_tokens");
-            // anchor_lang::solana_program::log::sol_log_compute_units();
-
-            // Get the the max_token that has the lowest deposit amount
-            // In the example above, this would be mintC
-            // This is the limiting factor on the amount of tokens to deposit
-            // across all reserves.
-            // let lowest_token_deposit_total_parity_price = denominated_tokens
-            //     .iter()
-            //     .map(|(_, d)| d.total_parity_price)
-            //     .min()
-            //     .ok_or(AmmError::InvariantViolation)?;
-            // if lowest_token_deposit_total_parity_price == Decimal::zero() {
-            //     msg!(
-            //         "No parity price can be zero because \
-            //         we're following a curve that is \
-            //         asymptotic to the axis"
-            //     );
-            //     return Err(error!(AmmError::InvariantViolation));
-            // }
-
-            // let tokens_to_deposit = denominated_tokens
-            //     .into_iter()
-            //     .map(|(mint, denominated_token)| {
-            //         // TODO: put this in README equation
-            //         //
-            //         // Consider the example above:
-            //         // * mintC is the limiting factor in the deposit, ie. we can
-            //         //   deposit least of mintC in terms of the common price.
-            //         //   Therefore the amount we deposit is equal to the
-            //         //   requested max amount by the user.
-            //         // * mintB is the quote token, ie. the prices of other mints
-            //         //   are given in mintB. Therefore, the amount to deposit is
-            //         //   equal to the lowest parity price.
-            //         // * mintA is neither the limiting factor nor the quote, so
-            //         //   follow the formula
-
-            //         // To keep the same ratios after deposit as there were
-            //         // before the deposit, we don't take all tokens that user
-            //         // provided in the "max_tokens" arguments. We found the
-            //         // limiting factor. Now we need to scale the max amount of
-            //         // tokens to deposit by the ratio of the total parity price
-            //         // to the limiting factor.
-            //         //
-            //         // For example:
-            //         // Limiting factor is $5, the total parity price is $10 and
-            //         // the amount of tokens that hose $10 represent is 100.
-            //         // We can only deposit $5 worth of those tokens.
-            //         // $5/$10 * 100 = 50 tokens.
-            //         if lowest_token_deposit_total_parity_price
-            //             > denominated_token.total_parity_price
-            //         {
-            //             msg!(
-            //                 "The 'lowest_total_price_to_reserve_total_price' \
-            //                 ratio should always be less than 1 because \
-            //                 we are limiting the deposit based on the lowest \
-            //                 reserve price"
-            //             );
-            //             return Err(error!(AmmError::InvariantViolation));
-            //         }
-
-            //         msg!("before try_mul_div");
-            //         anchor_lang::solana_program::log::sol_log_compute_units();
-            //         let amount = try_mul_div(
-            //             denominated_token.max_tokens_to_deposit,
-            //             lowest_token_deposit_total_parity_price,
-            //             denominated_token.total_parity_price,
-            //         )?
-            //         // we ceil to prevent deposit of 0 tokens
-            //         .try_ceil()?;
-            //         msg!("after try_mul_div");
-            //         anchor_lang::solana_program::log::sol_log_compute_units();
-
-            //         Ok((mint, TokenAmount { amount }))
-            //     })
-            //     .collect::<Result<BTreeMap<Pubkey, TokenAmount>>>()?;
 
             msg!("get_eligible_lp_tokens");
             anchor_lang::solana_program::log::sol_log_compute_units();
