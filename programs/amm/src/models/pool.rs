@@ -416,7 +416,7 @@ impl Pool {
     ///
     /// # Important
     /// This function mustn't be called when any reserve's balance is 0.
-    fn get_reserve_parity_prices(&self) -> Result<BTreeMap<Pubkey, Decimal>> {
+    fn _get_reserve_parity_prices(&self) -> Result<BTreeMap<Pubkey, Decimal>> {
         debug_assert!(self.dimension >= 2);
         let lowest_priced_token: Decimal = self
             .reserves()
@@ -445,6 +445,29 @@ impl Pool {
             .collect()
     }
 
+    /// Returns the ratio by which all token reserves need to be multiplied or
+    /// divided, depending if the ratio is inverted or not, to arrive to the
+    /// token deposit amounts.
+    ///
+    /// For a given token a, we have the following variables:
+    /// deposit of token a (d_a)
+    /// max_token a (t_a)
+    /// token reserve (x_a)
+    ///
+    /// It follows:
+    /// d_a = x_a * min( t_1/x_1, t_2/x_2 , ... , t_n/x_n )
+    ///
+    /// To maximize precision we first check if any reserve token amount
+    /// surpasses the supply 10_000_000_000. If that is the case we invert the
+    /// ratios to take advantage of the fact that we can achieve more precision
+    /// on the integer side of numbers compared to the decimal side. We
+    /// therefore leading to the following equation:
+    ///
+    /// d_a = x_a / max( x_1/t_1, x_2/t_2 , ... , x_n/t_n)
+    ///
+    /// This method returns a tuple with the ratio, which can either be
+    /// min(t_i / x_i ...) or max(t_i / x_i ...), and a bool value that
+    /// determines if the ratio is inverted or not.
     fn get_deposit_ratio(
         reserves: &BTreeMap<Pubkey, TokenAmount>,
         max_deposits: &BTreeMap<Pubkey, TokenAmount>,
