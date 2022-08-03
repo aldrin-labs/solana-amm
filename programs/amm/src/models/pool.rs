@@ -406,45 +406,6 @@ impl Pool {
         Ok(tokens_to_redeem)
     }
 
-    /// This method will return a [`BTreeMap`] with all the reserve token prices
-    /// measured in parity (all with the same denominator/quote). We chose the
-    /// token in the pool that has the lowest price to be the quote price for
-    /// all the tokens. As an example, if we have x1, x2, x3 and x3 is
-    /// the token with the biggest reserve, then this means x3 is the cheapest
-    /// token from the perspective of the pool prices. Therefore we calculate
-    /// x1 and x2 prices based on x3 as quote.
-    ///
-    /// # Important
-    /// This function mustn't be called when any reserve's balance is 0.
-    fn get_reserve_parity_prices(&self) -> Result<BTreeMap<Pubkey, Decimal>> {
-        debug_assert!(self.dimension >= 2);
-        let lowest_priced_token: Decimal = self
-            .reserves()
-            .iter()
-            .map(|r| r.tokens.amount)
-            .max()
-            // there always have to be at least two reserves in the pool
-            .ok_or(AmmError::InvariantViolation)?
-            .into();
-
-        // pick the token with the lowest pool price and
-        // price all other tokens with that denominator
-        self.reserves()
-            .iter()
-            .map(|reserve| {
-                Ok((
-                    reserve.mint,
-                    lowest_priced_token
-                        .try_div(Decimal::from(reserve.tokens))
-                        .map_err(|_| {
-                            msg!("No reserve can have a zero balance");
-                            AmmError::InvariantViolation
-                        })?,
-                ))
-            })
-            .collect()
-    }
-
     /// Returns the ratio by which all token reserves need to be multiplied or
     /// divided, depending if the ratio is inverted or not, to arrive to the
     /// token deposit amounts.
@@ -750,6 +711,47 @@ impl Pool {
 mod tests {
     use super::*;
     use proptest::*;
+
+    /// This method will return a [`BTreeMap`] with all the reserve token prices
+    /// measured in parity (all with the same denominator/quote). We chose the
+    /// token in the pool that has the lowest price to be the quote price for
+    /// all the tokens. As an example, if we have x1, x2, x3 and x3 is
+    /// the token with the biggest reserve, then this means x3 is the cheapest
+    /// token from the perspective of the pool prices. Therefore we calculate
+    /// x1 and x2 prices based on x3 as quote.
+    ///
+    /// # Important
+    /// This function mustn't be called when any reserve's balance is 0.
+    fn get_reserve_parity_prices(
+        pool: &Pool,
+    ) -> Result<BTreeMap<Pubkey, Decimal>> {
+        debug_assert!(pool.dimension >= 2);
+        let lowest_priced_token: Decimal = pool
+            .reserves()
+            .iter()
+            .map(|r| r.tokens.amount)
+            .max()
+            // there always have to be at least two reserves in the pool
+            .ok_or(AmmError::InvariantViolation)?
+            .into();
+
+        // pick the token with the lowest pool price and
+        // price all other tokens with that denominator
+        pool.reserves()
+            .iter()
+            .map(|reserve| {
+                Ok((
+                    reserve.mint,
+                    lowest_priced_token
+                        .try_div(Decimal::from(reserve.tokens))
+                        .map_err(|_| {
+                            msg!("No reserve can have a zero balance");
+                            AmmError::InvariantViolation
+                        })?,
+                ))
+            })
+            .collect()
+    }
 
     #[test]
     fn works_with_two_deposits_with_different_ratios() {
@@ -2400,7 +2402,7 @@ mod tests {
             // pick the token with the lowest pool price and
             // price all other tokens with that denominator
             let reserve_prices: BTreeMap<Pubkey, Decimal> =
-                pool2.get_reserve_parity_prices()?;
+                get_reserve_parity_prices(&pool2)?;
 
             // Convert max_tokens amounts to denominate in lowest denominated
             // token. Those values will be all comparable
@@ -2557,7 +2559,7 @@ mod tests {
             // pick the token with the lowest pool price and
             // price all other tokens with that denominator
             let reserve_prices: BTreeMap<Pubkey, Decimal> =
-                pool2.get_reserve_parity_prices()?;
+                get_reserve_parity_prices(&pool2)?;
 
             // Convert max_tokens amounts to denominate in lowest denominated
             // token. Those values will be all comparable
