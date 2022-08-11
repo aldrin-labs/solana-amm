@@ -794,11 +794,11 @@ snapshot ring buffer history:
 <!-- List of References -->
 
 [token-program-mint]: https://docs.rs/anchor-spl/0.24.2/anchor_spl/token/struct.Mint.html
-[project-code-coverage]: https://crypto_project.gitlab.io/defi/amm/coverage
-[fp-rust-docs]: https://crypto_project.gitlab.io/defi/amm/farming
-[fp-changelog]: https://crypto_project.gitlab.io/defi/amm/fp.changelog.html
-[amm-rust-docs]: https://crypto_project.gitlab.io/defi/amm/amm
-[amm-changelog]: https://crypto_project.gitlab.io/defi/amm/amm.changelog.html
+[project-code-coverage]: https://crypto_project.gitlab.io/amm/amm/coverage
+[fp-rust-docs]: https://crypto_project.gitlab.io/amm/amm/farming
+[fp-changelog]: https://crypto_project.gitlab.io/amm/amm/fp.changelog.html
+[amm-rust-docs]: https://crypto_project.gitlab.io/amm/amm/amm
+[amm-changelog]: https://crypto_project.gitlab.io/amm/amm/amm.changelog.html
 [rin-staking]: https://dex.aldrin.com/staking
 [example-staking-units]: docs/images/staking_units.png
 [snapshot-buffer]: docs/images/snapshot_buffer.png
