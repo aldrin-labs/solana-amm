@@ -37,10 +37,12 @@ pub fn scale_down_value(mut val: Decimal) -> Result<ScaleDownOutput> {
 }
 
 /// This function receives a number in Decimal type form and will return the
-/// exponent of the number. We find the exponent using a naive method of
-/// counting the number of digits in the Decimal type.
+/// exponent of the number in base 2. We find the exponent using a naive
+/// method of destructuring the Decimal type into three u64s, and count the
+/// leading zeroes from these three values.
 ///
-/// Input `num` in scientific notation follows: num = x . 10^exponent
+/// Input `num` in scientific notation follows: num = x . 10^exponent (base 10)
+/// which is equivalent to num = y . 2^exponent (base 2)
 ///
 /// The exponent of an integer number can be naively obtained by counting its
 /// digits and subtracting one. We can do this since Decimal type can be though
@@ -96,7 +98,7 @@ pub fn base_two_exponent(num: Decimal) -> u32 {
 /// decrease the orders of magnitude prior to the multiplication and therefore
 /// decrease the risk of overflow.
 pub fn try_mul_div(a: Decimal, b: Decimal, c: Decimal) -> Result<Decimal> {
-    // In case c is less than one, the division will always increase
+    // In case `c` is less than one, the division will always increase
     // the number computed therefore we just follow normally. There is
     // risk of overflow but we cannot do anything to mitigate that risk.
     if c < Decimal::one() {
@@ -111,22 +113,30 @@ pub fn try_mul_div(a: Decimal, b: Decimal, c: Decimal) -> Result<Decimal> {
     anchor_lang::solana_program::log::sol_log_compute_units();
 
     let res = if a_exponent + b_exponent >= 130 {
-        // This means that multiplying a and b will lead to a very high number,
-        // potentially bigger than 1*10^39 and therefore to decrease risk of
-        // overflow we divide first the highest numerator by c to decrease the
-        // exponent
+        // This means that multiplying `a` and `b` will lead to a very high
+        // number, potentially bigger than 1*10^39 and therefore to decrease
+        // risk of overflow we divide first the highest numerator by c to
+        // decrease the exponent
         if a_exponent >= b_exponent {
-            // In this case a is bigger than or equal to b, so we will
-            // divide a by c before multiplying it by b
+            // In this case `a` is bigger than or equal to `b`, so we will
+            // divide `a` by `c` before multiplying it by `b`
             a.try_div(c)?.try_mul(b)
         } else {
-            // In this case a is smaller than b, so we will divide
-            // b by c before multiplying it with a
+            // In this case `a` is smaller than `b`, so we will divide
+            // `b` by `c` before multiplying it with `a`
             b.try_div(c)?.try_mul(a)
         }
     } else {
-        // This meanst that it is safe to multiply a and b because it will
-        // never be bigger than 1*10^39 and therefore it should not overflow
+        // This means that it is safe to multiply `a` and `b` because it will
+        // never be bigger than 1*10^39 and therefore it should not overflow.
+        //
+        // It also means that if `a` is a very small number and `c` is a very
+        // big it is better to multiply `a` with `b` to reduce the decimal cases
+        // before dividing by `c`
+        //
+        // If both `a` and `b` are very small numbers and `c` is a very big
+        // number, then there is nothing we can do to reduce the risk of
+        // overflow and we follow with this order
         a.try_mul(b)?.try_div(c)
     };
 
@@ -228,69 +238,80 @@ mod tests {
         let num = Decimal::from(10_u64);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 1);
+        // 10 in binary is 1010
+        assert_eq!(exponent, 4);
 
         let num = Decimal::from(100_u64);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 2);
+        // 100 in binary is 1_100_100
+        assert_eq!(exponent, 7);
 
         let num = Decimal::from(1_000u128);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 3);
+        // 1_000 in binary is 1_111_101_000
+        assert_eq!(exponent, 10);
 
         let num = Decimal::from(100_000_000_u64);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 8);
+        // 100_000_000 in binary is 101_111_101_011_110_000_100_000_000
+        assert_eq!(exponent, 27);
 
         let num = Decimal::from(18_446_744_073_709_551_615_u64);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 19);
+        // 18_446_744_073_709_551_615_u64 in binary is
+        // 1_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
+        assert_eq!(exponent, 64);
 
-        // Testing on small numbers
+        // Testing on small numbers -> should always return zero
         // 1_000_000_000_000_000_000_u128 => 1
         let num = Decimal::from_scaled_val(1_000_000_000_000_000_000_u128);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 0);
+        assert_eq!(exponent, 0);
 
         // 100_000_000_000_000_000_u128 => 0.1
         let num = Decimal::from_scaled_val(100_000_000_000_000_000_u128);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 1);
+        assert_eq!(exponent, 0);
 
         // 10_000_000_000_000_000_u128 => 0.01
         let num = Decimal::from_scaled_val(10_000_000_000_000_000_u128);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 2);
+        assert_eq!(exponent, 0);
 
         // 1_000 => 0.000_000_000_000_001
         let num = Decimal::from_scaled_val(1_000u128);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 15);
+        assert_eq!(exponent, 0);
 
         // 1 => 0.000_000_000_000_000_001
         let num = Decimal::from_scaled_val(1u128);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 18);
+        assert_eq!(exponent, 0);
 
         // Tesing very large amounts
+
+        // 9_223_372_036_854_775_807 in binary is
+        // 111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
         let num = Decimal::from(u64::MAX / 2);
         let exponent = base_two_exponent(num);
+        assert_eq!(exponent, 63);
 
-        // assert_eq!(exponent, 18);
-
+        // 170_141_183_460_469_231_731_687_303_715_884_105_727 in binary is
+        // 1_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
         let num = Decimal::from(u128::MAX / 2);
+        println!("{:?}", u128::MAX / 2);
         let exponent = base_two_exponent(num);
 
-        // assert_eq!(exponent, 38);
+        assert_eq!(exponent, 127);
 
         Ok(())
     }
