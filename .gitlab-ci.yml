@@ -4,7 +4,7 @@ stages:
 
 variables:
   KATEX_VERSION: "0.13.9"
-  SOLANA_VERSION: "1.10.29"
+  SOLANA_VERSION: "1.9.18"
 
 # runs unit tests in parallel with other build stage jobs
 unit:
