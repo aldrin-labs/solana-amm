@@ -2,7 +2,7 @@ import { PublicKey, Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import { Farm } from "../farm";
 import { Farmer } from "../farmer";
-import { errLogs, farming } from "../../helpers";
+import { errLogs, farming, payer } from "../../helpers";
 
 export function test() {
   describe("create_farmer", () => {
@@ -25,14 +25,6 @@ export function test() {
       expect(logs).to.contain("already in use");
     });
 
-    it("fails if authority isn't signer", async () => {
-      await expect(
-        Farmer.init(farm, {
-          skipAuthoritySignature: true,
-        })
-      ).to.be.rejected;
-    });
-
     it("works", async () => {
       const farmer = await Farmer.init(farm);
       const farmerInfo = await farmer.fetch();
@@ -50,6 +42,14 @@ export function test() {
         expect(mint).to.deep.eq(PublicKey.default);
         expect(tokens.amount.toNumber()).to.eq(0);
       });
+    });
+
+    it("works on behalf of a user", async () => {
+      const authority = Keypair.generate();
+      const farmer = await Farmer.init(farm, { authority, payer });
+      const farmerInfo = await farmer.fetch();
+
+      expect(farmerInfo.authority).to.deep.eq(authority.publicKey);
     });
   });
 }

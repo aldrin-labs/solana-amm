@@ -16,13 +16,16 @@ use crate::prelude::*;
 
 #[derive(Accounts)]
 pub struct CreateFarmer<'info> {
-    /// the user who wishes to create a new [`Farmer`] account and will be the
-    /// authority over withdrawals and claims
+    /// Payer can create a farmer on behalf of another user, or payer and
+    /// authority can be the same key.
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub payer: Signer<'info>,
+    /// CHECK: the user who wishes to create a new [`Farmer`] account and will
+    /// be the authority over withdrawals and claims
+    pub authority: AccountInfo<'info>,
     #[account(
         init,
-        payer = authority,
+        payer = payer,
         space = Farmer::space(),
         seeds = [
             Farmer::ACCOUNT_PREFIX,

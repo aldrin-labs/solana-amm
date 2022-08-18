@@ -5,9 +5,9 @@ import { Account, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 import { BN } from "@project-serum/anchor";
 
 export interface InitFarmerArgs {
+  payer: Keypair;
   authority: Keypair;
   pda: PublicKey;
-  skipAuthoritySignature: boolean;
 }
 
 export interface StartFarmingArgs {
@@ -62,7 +62,7 @@ export class Farmer {
     input: Partial<InitFarmerArgs> = {}
   ): Promise<Farmer> {
     const authority = input.authority ?? Keypair.generate();
-    const skipAuthoritySignature = input.skipAuthoritySignature ?? false;
+    const payer = input.payer ?? authority;
     const [correctPda, _bumpSeed] = await Farmer.signerFrom(
       farm.id,
       authority.publicKey
@@ -71,19 +71,15 @@ export class Farmer {
 
     await airdrop(authority.publicKey);
 
-    const signers = [];
-    if (!skipAuthoritySignature) {
-      signers.push(authority);
-    }
-
     await farming.methods
       .createFarmer()
       .accounts({
+        payer: payer.publicKey,
         authority: authority.publicKey,
         farm: farm.id,
         farmer: pda,
       })
-      .signers(signers)
+      .signers([payer])
       .rpc();
 
     return new Farmer(farm, authority);
