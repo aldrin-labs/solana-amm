@@ -259,7 +259,6 @@ impl Pool {
             msg!("tokens_to_deposit");
             anchor_lang::solana_program::log::sol_log_compute_units();
             let tokens_to_deposit = reserves
-                .clone()
                 .into_iter()
                 .map(|(mint, token_reserve)| {
                     anchor_lang::solana_program::log::sol_log_compute_units();
@@ -455,7 +454,7 @@ impl Pool {
             let min_ratio =
                 ratio.values().min().ok_or(AmmError::InvariantViolation)?;
 
-            return Ok((*min_ratio, is_inverted));
+            Ok((*min_ratio, is_inverted))
         } else {
             let invert_ratio: BTreeMap<Pubkey, Decimal> = max_deposits
                 .iter()
@@ -477,7 +476,7 @@ impl Pool {
                 .max()
                 .ok_or(AmmError::InvariantViolation)?;
 
-            return Ok((*max_ratio, is_inverted));
+            Ok((*max_ratio, is_inverted))
         }
     }
 
