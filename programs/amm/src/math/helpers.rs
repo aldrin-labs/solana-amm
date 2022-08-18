@@ -75,9 +75,8 @@ pub fn base_two_exponent(num: Decimal) -> u32 {
 
     // ~2^60 is reserved for decimals (10^18 precisely)
     let max_exponent = 3 * 64 - 60;
-    let exponent_in_binary = max_exponent - leading_zeroes;
 
-    exponent_in_binary
+    max_exponent - leading_zeroes
 }
 
 /// Given the equation a . b / c, we are performing the computation
