@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { Pool } from "../pool";
 import { AccountMeta, Keypair, PublicKey } from "@solana/web3.js";
 import { createAccount, getAccount } from "@solana/spl-token";
-import { errLogs, payer, provider, sleep } from "../../helpers";
+import { payer, provider, sleep } from "../../helpers";
 import { BN } from "@project-serum/anchor";
 
 export function test() {
