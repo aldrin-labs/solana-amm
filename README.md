@@ -168,6 +168,10 @@ and the following $`max_tokens`$ vector:
 \vec{t}=\begin{bmatrix}  t_1 \\ t_2 \\ ... \\ t_n \end{bmatrix}
 ```
 
+#### Logic to compute deposit amounts
+
+In the previous versions we performed the following operations:
+
 1. Calculate the prices of all tokens by choosing the cheapest token to be the
    quote for all prices. The cheapest token is $`min(\vec x)`$. We then compute
    the vector of parity prices:
@@ -193,6 +197,19 @@ and the following $`max_tokens`$ vector:
 ```math
 \overrightarrow{d}=\begin{bmatrix}  t_1 \cdot \frac{min(\overrightarrow{t_{parity}})}{tp_1} \\ t_2 \cdot \frac{min(\overrightarrow{t_{parity}})}{tp_2}\\ ... \\ t_n \cdot \frac{min(\overrightarrow{t_{parity}})}{tp_n} \end{bmatrix}
 ```
+
+In order to decrease the compute units required to find out the amount of tokens
+to deposit, we perform the following:
+
+```math
+d_i = t_i \frac{min(\overrightarrow{t_{parity}})}{tp_1} = t_i \frac{min(\overrightarrow{t_{parity}})}{t_i \frac{min(\overrightarrow{x})}{x_i}}
+= \\ x_i \frac{min(\overrightarrow{t_{parity}})}{min(\overrightarrow{x})} = x_i \frac{min(t_1 \frac{min(\overrightarrow{x})}{x_1},...,min(t_n \frac{min(\overrightarrow{x})}{x_n})}{min(\overrightarrow{x})} = \\
+x_i \cdot min\Big(t_1 \frac{min(\overrightarrow{x})}{x_1 min(\overrightarrow{x})}, ..., t_n \frac{min(\overrightarrow{x})}{x_n min(\overrightarrow{x})}\Big)
+\\ = \\
+x_i \cdot min\Big( \frac{t_1}{x_1},...,\frac{t_n}{x_n} \Big)
+```
+
+#### Logic to compute LP tokens to mint
 
 5. Compute the tokens to mint with a simple rule of three:
 

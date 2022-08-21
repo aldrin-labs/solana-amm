@@ -36,40 +36,30 @@ pub fn scale_down_value(mut val: Decimal) -> Result<ScaleDownOutput> {
     })
 }
 
-/// This function receives a number in Decimal type form and will return the
-/// exponent of the number. We find the exponent using a naive method of
-/// counting the number of digits in the Decimal type.
+/// This function returns leading zeroes after the decimal point. The decimal
+/// point is after 10^18. However, this number cannot be translated directly to
+/// binary. Therefore, we get the next power of two, which is 2^60, and count
+/// leading zeroes from that number.
 ///
-/// Input `num` in scientific notation follows: num = x . 10^exponent
-///
-/// The exponenet of an integer number can be naively obtained by counting its
-/// digits and subtracting one. We can do this since Decimal type can be though
-/// of as very big integer number that represents a smaller number that might
-/// not be integer at all.
-///
-/// In Decimal type the number 7 will be represented as
-/// 7_000_000_000_000_000_000. This means that positive orders of magnitude will
-/// start at 19 and everything below that will have a negative order of
-/// magnitude.
-///
-/// Since we don't want to return negative values, Decimal type values
-/// representing numbers between 0 >= num > 1 will invert the computation. In
-/// this cases we will flag the exponenet returned as being a negative exponent.
-///
-/// This function returns a tuple Result of (u64, bool) representing the
-/// exponent and its sign (positive if true, negative if false)
-fn find_exponent(num: Decimal) -> Result<(u64, bool)> {
-    let exponent_in_decimal = num.0.to_string().chars().count() as u64;
+/// In another words, first 2^60 is considered point decimal and is ignored, so
+/// 10^18 (1 WAD) has 192 - 60 = 132 leading zeroes.
+fn integer_leading_zeros(num: Decimal) -> u32 {
+    let Decimal(decimal::U192([lowest, middle, upper])) = num;
 
-    if exponent_in_decimal >= 19 {
-        // In case the number is above or equal to 1, which means the exponent
-        // will be positive
-        Ok((exponent_in_decimal - 19, true))
+    let leading_zeroes = if upper == 0 {
+        if middle == 0 {
+            lowest.leading_zeros().min(4) + u64::BITS + u64::BITS
+        } else {
+            middle.leading_zeros() + u64::BITS
+        }
     } else {
-        // In case the number is below 1, which means the exponent
-        // will be negative
-        Ok((19 - exponent_in_decimal, false))
-    }
+        upper.leading_zeros()
+    };
+
+    // ~2^60 is reserved for decimals (10^18 precisely)
+    let max_exponent = 3 * 64 - 60;
+
+    max_exponent - leading_zeroes
 }
 
 /// Given the equation a . b / c, we are performing the computation
@@ -82,40 +72,46 @@ fn find_exponent(num: Decimal) -> Result<(u64, bool)> {
 ///
 /// Naturally we prefer to perform the computations that increase the order
 /// of magnitude because the Decimal type has a ceiling of 10^39 on the upper
-/// bound, whilst only having  a floor of 10^-18 on the lower bound. We only
-/// do not favour such computations first if the result exponent is bigger than
-/// 38 (we give 1 order of magnitude slack for safety). In such case we will
-/// try to reduce the exponent before the multiplication by diving the biggest
-/// numerator (a or b) by c, as long as c is bigger than one, since this will
-/// decrease the orders of magnitude prior to the multiplication and therefore
-/// decrease the risk of overflow.
+/// bound, whilst only having  a floor of 10^-18 on the lower bound.
 pub fn try_mul_div(a: Decimal, b: Decimal, c: Decimal) -> Result<Decimal> {
-    let (a_exponent, _) = find_exponent(a)?;
-    let (b_exponent, _) = find_exponent(b)?;
-    let (_, c_is_bigger_than_or_eq_one) = find_exponent(c)?;
-    // In case c is less than one,the division will always increase
+    // In case `c` is less than one, the division will always increase
     // the number computed therefore we just follow normally. There is
     // risk of overflow but we cannot do anything to mitigate that risk.
-    if !c_is_bigger_than_or_eq_one {
+    if c < Decimal::one() {
         return a.try_mul(b)?.try_div(c);
     }
-    if a_exponent + b_exponent >= 38 {
-        // This means that multiplying a and b will lead to a very high number,
-        // potentially bigger than 1*10^39 and therefore to decrease risk of
-        // overflow we divide first the highest numerator by c to decrease the
-        // exponent
-        if a_exponent >= b_exponent {
-            // In this case a is bigger than or equal to b, so we will
-            // divide a by c before multiplying it by b
+
+    let a_lz = integer_leading_zeros(a);
+    let b_lz = integer_leading_zeros(b);
+
+    // 192 - 60 (see the fn integer_leading_zeros) is the max exponent. We cut
+    // some slack in this heuristic and chose 130 as the point until which we
+    // can still multiply a and b.
+    if a_lz + b_lz >= 130 {
+        // This means that multiplying `a` and `b` will lead to a very high
+        // number, potentially bigger than 1*10^39 and therefore to decrease
+        // risk of overflow we divide first the highest numerator by c to
+        // decrease the exponent
+        if a_lz >= b_lz {
+            // In this case `a` is bigger than or equal to `b`, so we will
+            // divide `a` by `c` before multiplying it by `b`
             a.try_div(c)?.try_mul(b)
         } else {
-            // In this case a is smaller than b, so we will divide
-            // b by c before multiplying it with a
+            // In this case `a` is smaller than `b`, so we will divide
+            // `b` by `c` before multiplying it with `a`
             b.try_div(c)?.try_mul(a)
         }
     } else {
-        // This meanst that it is safe to multiply a and b because it will
-        // never be bigger than 1*10^39 and therefore it should not overflow
+        // This means that it is safe to multiply `a` and `b` because it will
+        // never be bigger than 1*10^39 and therefore it should not overflow.
+        //
+        // It also means that if `a` is a very small number and `c` is a very
+        // big it is better to multiply `a` with `b` to reduce the decimal cases
+        // before dividing by `c`
+        //
+        // If both `a` and `b` are very small numbers and `c` is a very big
+        // number, then there is nothing we can do to reduce the risk of
+        // overflow and we follow with this order
         a.try_mul(b)?.try_div(c)
     }
 }
@@ -205,89 +201,86 @@ mod tests {
     #[test]
     fn it_finds_exponent() -> Result<()> {
         let num = Decimal::from(1_u64);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 0_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        assert_eq!(exponent, 0);
 
         let num = Decimal::from(10_u64);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 1_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        // 10 in binary is 1010
+        assert_eq!(exponent, 4);
 
         let num = Decimal::from(100_u64);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 2_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        // 100 in binary is 1_100_100
+        assert_eq!(exponent, 7);
 
         let num = Decimal::from(1_000u128);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 3_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        // 1_000 in binary is 1_111_101_000
+        assert_eq!(exponent, 10);
 
         let num = Decimal::from(100_000_000_u64);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 8_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        // 100_000_000 in binary is 101_111_101_011_110_000_100_000_000
+        assert_eq!(exponent, 27);
 
         let num = Decimal::from(18_446_744_073_709_551_615_u64);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 19_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        // 18_446_744_073_709_551_615_u64 in binary is
+        // 1_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
+        assert_eq!(exponent, 64);
 
-        // Testing on small numbers
+        // Testing on small numbers -> should always return zero
         // 1_000_000_000_000_000_000_u128 => 1
         let num = Decimal::from_scaled_val(1_000_000_000_000_000_000_u128);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 0_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        assert_eq!(exponent, 0);
 
         // 100_000_000_000_000_000_u128 => 0.1
         let num = Decimal::from_scaled_val(100_000_000_000_000_000_u128);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 1_u64);
-        assert_eq!(is_bigger_than_or_eq_one, false);
+        assert_eq!(exponent, 0);
 
         // 10_000_000_000_000_000_u128 => 0.01
         let num = Decimal::from_scaled_val(10_000_000_000_000_000_u128);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 2_u64);
-        assert_eq!(is_bigger_than_or_eq_one, false);
+        assert_eq!(exponent, 0);
 
         // 1_000 => 0.000_000_000_000_001
         let num = Decimal::from_scaled_val(1_000u128);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 15_u64);
-        assert_eq!(is_bigger_than_or_eq_one, false);
+        assert_eq!(exponent, 0);
 
         // 1 => 0.000_000_000_000_000_001
         let num = Decimal::from_scaled_val(1u128);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 18_u64);
-        assert_eq!(is_bigger_than_or_eq_one, false);
+        assert_eq!(exponent, 0);
 
-        // Tesing very large amounts
+        // Testing very large amounts
+
+        // 9_223_372_036_854_775_807 in binary is
+        // 111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
         let num = Decimal::from(u64::MAX / 2);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
+        assert_eq!(exponent, 63);
 
-        assert_eq!(exponent, 18_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
-
+        // 170_141_183_460_469_231_731_687_303_715_884_105_727 in binary is
+        // 1_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111_111
         let num = Decimal::from(u128::MAX / 2);
-        let (exponent, is_bigger_than_or_eq_one) = find_exponent(num)?;
+        let exponent = integer_leading_zeros(num);
 
-        assert_eq!(exponent, 38_u64);
-        assert_eq!(is_bigger_than_or_eq_one, true);
+        assert_eq!(exponent, 127);
 
         Ok(())
     }
@@ -297,56 +290,18 @@ mod tests {
         fn successfully_returns_positive_exponent(
             num in 1..100_000_000_000_000_000_000_u128,
         ) {
-            assert!(find_exponent(Decimal::from(num)).is_ok());
-
-            let actual_result = find_exponent(Decimal::from(num)).unwrap();
+            let actual_result = integer_leading_zeros(Decimal::from(num));
 
             let num = num * 1_000_000_000_000_000_000;
             let expected_result = (0..)
                 .take_while(|i| {
-                    Decimal::from(10_u64).try_pow(*i).unwrap() <= Decimal::from(num)
+                    Decimal::from(2_u64).try_pow(*i).unwrap() <= Decimal::from(num)
                 })
-                .count() as u64 - 19;
+                .count() as u32 - 60;
 
-            // Assert exponent
             assert_eq!(
-                actual_result.0,
+                actual_result,
                 expected_result
-            );
-
-            // Assert that exponenet is positive
-            assert_eq!(
-                actual_result.1,
-                true
-            );
-        }
-
-        #[test]
-        fn successfully_returns_negative_exponent(
-            num in 1..1_000_000_000_000_000_000_u128,
-        ) {
-            let num_dec = Decimal::from_scaled_val(num);
-
-            let actual_result = find_exponent(Decimal::from(num_dec)).unwrap();
-
-            let expected_result = 19 - (0..)
-                .take_while(|i| {
-                    Decimal::from(10_u64).try_pow(*i).unwrap()
-                    <=
-                    Decimal::from(num_dec.to_scaled_val().unwrap())
-                })
-                .count() as u64;
-
-            // Assert exponent
-            assert_eq!(
-                actual_result.0,
-                expected_result
-            );
-
-            // Assert that exponenet is negative
-            assert_eq!(
-                actual_result.1,
-                false
             );
         }
     }
