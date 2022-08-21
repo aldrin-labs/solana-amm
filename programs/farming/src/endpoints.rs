@@ -1,4 +1,5 @@
 pub mod add_harvest;
+pub mod airdrop;
 pub mod claim_eligible_harvest;
 pub mod close_farmer;
 pub mod compound_across_farms;
@@ -17,6 +18,7 @@ pub mod update_eligible_harvest;
 pub mod whitelist_farm_for_compounding;
 
 pub use add_harvest::*;
+pub use airdrop::*;
 pub use claim_eligible_harvest::*;
 pub use close_farmer::*;
 pub use compound_across_farms::*;

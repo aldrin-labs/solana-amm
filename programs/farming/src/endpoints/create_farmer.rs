@@ -40,14 +40,19 @@ pub struct CreateFarmer<'info> {
 }
 
 pub fn handle(ctx: Context<CreateFarmer>) -> Result<()> {
-    let accounts = ctx.accounts;
+    let accs = ctx.accounts;
 
     // load ref to farm struct in order to assure we can load [`Farm`]
-    accounts.farm.load()?;
+    let farm = accs.farm.load()?;
 
     // set both farmer `farm` and `authority` public keys
-    accounts.farmer.authority = accounts.authority.key();
-    accounts.farmer.farm = accounts.farm.key();
+    accs.farmer.authority = accs.authority.key();
+    accs.farmer.farm = accs.farm.key();
+
+    // set empty harvests, note that harvests don't have to be in any particular
+    // order
+    accs.farmer
+        .set_harvests(farm.harvests.map(|h| (h.mint, TokenAmount::new(0))))?;
 
     Ok(())
 }

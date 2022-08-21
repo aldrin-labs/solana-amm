@@ -56,7 +56,7 @@ export function test() {
 
       const logs = await errLogs(
         farm.newHarvestPeriod(fakeHarvestMint, 0, 100, defTps, {
-          harvestVault: await farm.harvestVault(harvestMint),
+          harvestVault: farm.harvestVault(harvestMint),
           harvestWallet: await farm.adminHarvestWallet(harvestMint),
           depositTokens: false,
         })

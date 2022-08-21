@@ -219,7 +219,7 @@ export class Farm {
     return pda;
   }
 
-  public async harvestVault(mint: PublicKey): Promise<PublicKey> {
+  public harvestVault(mint: PublicKey): PublicKey {
     const [pda, _bumpSeed] = PublicKey.findProgramAddressSync(
       [Buffer.from("harvest_vault"), this.id.toBytes(), mint.toBytes()],
       farming.programId
@@ -228,7 +228,7 @@ export class Farm {
   }
 
   public async harvestVaultAccount(mint: PublicKey): Promise<Account> {
-    const pda = await this.harvestVault(mint);
+    const pda = this.harvestVault(mint);
     return getAccount(provider.connection, pda);
   }
 
@@ -246,8 +246,7 @@ export class Farm {
         return createMint(provider.connection, payer, admin.publicKey, null, 6);
       })());
 
-    const harvestVault =
-      input.harvestVault ?? (await this.harvestVault(harvestMint));
+    const harvestVault = input.harvestVault ?? this.harvestVault(harvestMint);
 
     const signers = [];
     if (!skipAdminSignature) {
@@ -280,7 +279,7 @@ export class Farm {
     const admin = input.admin ?? this.admin;
     const skipAdminSignature = input.skipAdminSignature ?? false;
 
-    const harvestVault = input.harvestVault ?? (await this.harvestVault(mint));
+    const harvestVault = input.harvestVault ?? this.harvestVault(mint);
 
     const signers = [];
     if (!skipAdminSignature) {
@@ -461,8 +460,7 @@ export class Farm {
     const admin = input.admin ?? this.admin;
     const farm = input.farm ?? this.id;
     const skipAdminSignature = input.skipAdminSignature ?? false;
-    const harvestVault =
-      input.harvestVault ?? (await this.harvestVault(harvestMint));
+    const harvestVault = input.harvestVault ?? this.harvestVault(harvestMint);
     const harvestWallet =
       input.harvestWallet ?? (await this.adminHarvestWallet(harvestMint));
     const farmSignerPda = input.signerPda ?? (await this.signerPda());
@@ -579,7 +577,7 @@ export class Farm {
     const stakeVault = input.stakeVault ?? (await this.stakeVault());
     const farmer = input.farmer ?? Keypair.generate().publicKey;
 
-    const harvestVault = input.harvestVault ?? (await this.harvestVault(mint));
+    const harvestVault = input.harvestVault ?? this.harvestVault(mint);
 
     // Whitelist PDA
     const [whitelistCorrectPda, _signerBumpSeed] =
@@ -627,7 +625,7 @@ export class Farm {
       (await (await Farmer.init(possibleTargetFarm)).id());
 
     const sourceHarvestVault =
-      input.sourceHarvestVault ?? (await this.harvestVault(mint));
+      input.sourceHarvestVault ?? this.harvestVault(mint);
 
     // Whitelist PDA
     const [whitelistCorrectPda, _signerBumpSeed] =

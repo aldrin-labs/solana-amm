@@ -19,6 +19,7 @@ import * as compoundAcrossFarms from "./endpoints/compound-across-farms";
 import * as stopFarming from "./endpoints/stop-farming";
 import * as updateEligibleHarvest from "./endpoints/update-eligible-harvest";
 import * as claimEligibleHarvest from "./endpoints/claim-eligible-harvest";
+import * as airdropEndpoint from "./endpoints/airdrop";
 
 import { airdrop, provider } from "../helpers";
 
@@ -40,6 +41,7 @@ describe("farming", () => {
   dewhitelistFarmForCompounding.test();
   compoundSameFarm.test();
   compoundAcrossFarms.test();
+  airdropEndpoint.test();
 
   before("airdrop SOL to provider wallet", async () => {
     await airdrop(provider.wallet.publicKey);
