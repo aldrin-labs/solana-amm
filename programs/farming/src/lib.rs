@@ -1,10 +1,3 @@
-// We use zero copy for [`Farm`]. Zero copy uses
-// [repr(packed)](https://doc.rust-lang.org/nomicon/other-reprs.html). In future
-// releases, taking a reference to a field which is packed will not compile.
-// We will need to, eventually, copy out fields we want to use, or create
-// pointers [manually](https://github.com/rust-lang/rust/issues/82523).
-#![allow(unaligned_references, renamed_and_removed_lints, safe_packed_borrows)]
-
 pub mod consts;
 pub mod endpoints;
 pub mod err;
@@ -124,5 +117,9 @@ pub mod farming {
         ctx: Context<CompoundAcrossFarms>,
     ) -> Result<()> {
         endpoints::compound_across_farms::handle(ctx)
+    }
+
+    pub fn airdrop(ctx: Context<Airdrop>, airdrop: TokenAmount) -> Result<()> {
+        endpoints::airdrop::handle(ctx, airdrop)
     }
 }

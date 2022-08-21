@@ -43,6 +43,12 @@ export interface ClaimEligibleHarvestArgs {
   farmSignerPda: PublicKey;
 }
 
+export interface AirdropArgs {
+  walletAuthority: Keypair;
+  harvestWallet: PublicKey;
+  harvestVault: PublicKey;
+}
+
 export class Farmer {
   public async id(): Promise<PublicKey> {
     const [pda, _] = await Farmer.signerFrom(
@@ -113,12 +119,15 @@ export class Farmer {
     return this.farm.airdropStakeTokens(address, amount);
   }
 
-  public async harvestWallet(mint: PublicKey): Promise<Account> {
+  public async harvestWallet(
+    mint: PublicKey,
+    owner: PublicKey = this.authority.publicKey
+  ): Promise<Account> {
     return getOrCreateAssociatedTokenAccount(
       provider.connection,
       this.authority,
       mint,
-      this.authority.publicKey
+      owner
     );
   }
 
@@ -264,6 +273,36 @@ export class Farmer {
       })
       .remainingAccounts(remainingAccounts)
       .signers(signers)
+      .rpc();
+  }
+
+  public async airdrop(
+    amount: number,
+    mint: PublicKey,
+    input: Partial<AirdropArgs> = {}
+  ) {
+    const walletAuthority = input.walletAuthority ?? Keypair.generate();
+    const harvestWallet =
+      input.harvestWallet ??
+      (await (async () => {
+        const { address } = await this.harvestWallet(
+          mint,
+          walletAuthority.publicKey
+        );
+        await this.farm.airdropHarvestTokens(mint, address, amount);
+        return address;
+      })());
+    const harvestVault = input.harvestVault ?? this.farm.harvestVault(mint);
+
+    await farming.methods
+      .airdrop({ amount: new BN(amount) })
+      .accounts({
+        walletAuthority: walletAuthority.publicKey,
+        farmer: await this.id(),
+        harvestWallet,
+        harvestVault,
+      })
+      .signers([walletAuthority])
       .rpc();
   }
 }

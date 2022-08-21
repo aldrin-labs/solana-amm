@@ -86,6 +86,18 @@ impl Farmer {
     /// farmer account prefix constant
     pub const ACCOUNT_PREFIX: &'static [u8; 6] = b"farmer";
 
+    /// Returns mutable reference to the amount of tokens the farmer is eligible
+    /// for, or [`None`] if there doesn't exist the particular mint.
+    pub fn get_harvest_mut(
+        &mut self,
+        mint: Pubkey,
+    ) -> Option<&mut TokenAmount> {
+        self.harvests
+            .iter_mut()
+            .find(|h| h.mint == mint)
+            .map(|h| &mut h.tokens)
+    }
+
     pub fn add_to_vested(
         &mut self,
         current_slot: Slot,
