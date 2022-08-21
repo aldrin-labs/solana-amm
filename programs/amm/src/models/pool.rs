@@ -195,6 +195,12 @@ impl Pool {
         self.reserves_mut().iter_mut().find(|r| r.mint == mint)
     }
 
+    pub fn reserves_hashmap(&self) -> BTreeMap<Pubkey, TokenAmount> {
+        let reserves = &self.reserves();
+
+        reserves.iter().map(|r| (r.mint, r.tokens)).collect()
+    }
+
     /// This method calculates the tokens to deposit out of a [`BTreeMap`] of
     /// max tokens available to deposit by the user. When the supply of lp
     /// tokens is zero, in other words, on the first deposit, the tokens to
@@ -241,126 +247,27 @@ impl Pool {
 
             (max_tokens, Some(lp_tokens_to_distribute))
         } else {
-            // pick the token with the lowest pool price and
-            // price all other tokens with that denominator
-            let reserve_prices: BTreeMap<Pubkey, Decimal> =
-                self.get_reserve_parity_prices()?;
+            let reserves = self.reserves_hashmap();
 
-            // Convert max_tokens amounts to denominate in lowest denominated
-            // token. Those values will be all comparable
-            struct DenominatedToken {
-                max_tokens_to_deposit: Decimal,
-                total_parity_price: Decimal,
-            }
-            // Example:
-            // {
-            //     "mintA" : {
-            //         "max_tokens_to_deposit": "10",
-            //         "parity_price_per_token": "2",
-            //         "total_parity_price": "20",
-            //     },
-            //     "mintB" : {  // this is the quote token
-            //         "max_tokens_to_deposit": "10",
-            //         "parity_price_per_token": "1",
-            //         "total_parity_price": "10",
-            //     },
-            //     "mintC" : { // this is the token to deposit of the least
-            //         "max_tokens_to_deposit": "5",
-            //         "parity_price_per_token": "0.5",
-            //         "total_parity_price": "2.5",
-            //     },
-            // }
-            let denominated_tokens: BTreeMap<Pubkey, DenominatedToken> =
-                max_tokens
-                    .iter()
-                    .map(|(mint, tokens)| {
-                        let parity_price_per_token = *reserve_prices
-                            .get(mint)
-                            .ok_or(AmmError::InvariantViolation)?;
+            let (ratio, is_inverted) =
+                Pool::get_deposit_ratio(&reserves, &max_tokens)?;
 
-                        Ok((
-                            *mint,
-                            DenominatedToken {
-                                max_tokens_to_deposit: (*tokens).into(),
-                                total_parity_price: Decimal::from(*tokens)
-                                    .try_mul(parity_price_per_token)?,
-                            },
-                        ))
-                    })
-                    .collect::<Result<_>>()?;
-
-            // Get the the max_token that has the lowest deposit amount
-            //
-            // In the example above, this would be mintC
-            //
-            // This is the limiting factor on the amount of tokens to deposit
-            // across all reserves.
-            let lowest_token_deposit_total_parity_price = denominated_tokens
-                .iter()
-                .map(|(_, d)| d.total_parity_price)
-                .min()
-                .ok_or(AmmError::InvariantViolation)?;
-            if lowest_token_deposit_total_parity_price == Decimal::zero() {
-                msg!(
-                    "No parity price can be zero because \
-                    we're following a curve that is \
-                    asymptotic to the axis"
-                );
-                return Err(error!(AmmError::InvariantViolation));
-            }
-
-            let tokens_to_deposit = denominated_tokens
+            let tokens_to_deposit = reserves
                 .into_iter()
-                .map(|(mint, denominated_token)| {
-                    // TODO: put this in README equation
-                    //
-                    // Consider the example above:
-                    // * mintC is the limiting factor in the deposit, ie. we can
-                    //   deposit least of mintC in terms of the common price.
-                    //   Therefore the amount we deposit is equal to the
-                    //   requested max amount by the user.
-                    // * mintB is the quote token, ie. the prices of other mints
-                    //   are given in mintB. Therefore, the amount to deposit is
-                    //   equal to the lowest parity price.
-                    // * mintA is neither the limiting factor nor the quote, so
-                    //   follow the formula
-
-                    // To keep the same ratios after deposit as there were
-                    // before the deposit, we don't take all tokens that user
-                    // provided in the "max_tokens" arguments. We found the
-                    // limiting factor. Now we need to scale the max amount of
-                    // tokens to deposit by the ratio of the total parity price
-                    // to the limiting factor.
-                    //
-                    // For example:
-                    // Limiting factor is $5, the total parity price is $10 and
-                    // the amount of tokens that hose $10 represent is 100.
-                    // We can only deposit $5 worth of those tokens.
-                    // $5/$10 * 100 = 50 tokens.
-                    if lowest_token_deposit_total_parity_price
-                        > denominated_token.total_parity_price
-                    {
-                        msg!(
-                            "The 'lowest_total_price_to_reserve_total_price' \
-                            ratio should always be less than 1 because \
-                            we are limiting the deposit based on the lowest \
-                            reserve price"
-                        );
-                        return Err(error!(AmmError::InvariantViolation));
-                    }
-
-                    Ok((
-                        mint,
-                        TokenAmount {
-                            amount: try_mul_div(
-                                denominated_token.max_tokens_to_deposit,
-                                lowest_token_deposit_total_parity_price,
-                                denominated_token.total_parity_price,
-                            )?
+                .map(|(mint, token_reserve)| {
+                    let amount = if !is_inverted {
+                        Decimal::from(token_reserve)
+                            .try_mul(ratio)?
                             // we ceil to prevent deposit of 0 tokens
-                            .try_ceil()?,
-                        },
-                    ))
+                            .try_ceil()?
+                    } else {
+                        Decimal::from(token_reserve)
+                            .try_div(ratio)?
+                            // we ceil to prevent deposit of 0 tokens
+                            .try_ceil()?
+                    };
+
+                    Ok((mint, TokenAmount { amount }))
                 })
                 .collect::<Result<BTreeMap<Pubkey, TokenAmount>>>()?;
 
@@ -484,43 +391,79 @@ impl Pool {
         Ok(tokens_to_redeem)
     }
 
-    /// This method will return a [`BTreeMap`] with all the reserve token prices
-    /// measured in parity (all with the same denominator/quote). We chose the
-    /// token in the pool that has the lowest price to be the quote price for
-    /// all the tokens. As an example, if we have x1, x2, x3 and x3 is
-    /// the token with the biggest reserve, then this means x3 is the cheapest
-    /// token from the perspective of the pool prices. Therefore we calculate
-    /// x1 and x2 prices based on x3 as quote.
+    /// Returns the ratio by which all token reserves need to be multiplied or
+    /// divided, depending if the ratio is inverted or not, to arrive to the
+    /// token deposit amounts.
     ///
-    /// # Important
-    /// This function mustn't be called when any reserve's balance is 0.
-    fn get_reserve_parity_prices(&self) -> Result<BTreeMap<Pubkey, Decimal>> {
-        debug_assert!(self.dimension >= 2);
-        let lowest_priced_token: Decimal = self
-            .reserves()
-            .iter()
-            .map(|r| r.tokens.amount)
-            .max()
-            // there always have to be at least two reserves in the pool
-            .ok_or(AmmError::InvariantViolation)?
-            .into();
+    /// For a given token a, we have the following variables:
+    /// deposit of token a (d_a)
+    /// max_token a (t_a)
+    /// token reserve (x_a)
+    ///
+    /// It follows:
+    /// d_a = x_a * min( t_1/x_1, t_2/x_2 , ... , t_n/x_n )
+    ///
+    /// To maximize precision we first check if any reserve token amount
+    /// surpasses the supply 10_000_000_000. If that is the case we invert the
+    /// ratios to take advantage of the fact that we can achieve more precision
+    /// on the integer side of numbers compared to the decimal side. We
+    /// therefore leading to the following equation:
+    ///
+    /// d_a = x_a / max( x_1/t_1, x_2/t_2 , ... , x_n/t_n)
+    ///
+    /// This method returns a tuple with the ratio, which can either be
+    /// min(t_i / x_i ...) or max(t_i / x_i ...), and a bool value that
+    /// determines if the ratio is inverted or not.
+    fn get_deposit_ratio(
+        reserves: &BTreeMap<Pubkey, TokenAmount>,
+        max_deposits: &BTreeMap<Pubkey, TokenAmount>,
+    ) -> Result<(Decimal, bool)> {
+        let is_inverted =
+            reserves.iter().any(|(_, t)| t.amount > 10_000_000_000);
 
-        // pick the token with the lowest pool price and
-        // price all other tokens with that denominator
-        self.reserves()
-            .iter()
-            .map(|reserve| {
-                Ok((
-                    reserve.mint,
-                    lowest_priced_token
-                        .try_div(Decimal::from(reserve.tokens))
-                        .map_err(|_| {
-                            msg!("No reserve can have a zero balance");
-                            AmmError::InvariantViolation
-                        })?,
-                ))
-            })
-            .collect()
+        if !is_inverted {
+            let ratio: BTreeMap<Pubkey, Decimal> = max_deposits
+                .iter()
+                .map(|(mint, max_token)| {
+                    let token_reserve = *reserves
+                        .get(mint)
+                        .ok_or(AmmError::InvariantViolation)?;
+
+                    Ok((
+                        *mint,
+                        Decimal::from(max_token.amount)
+                            .try_div(token_reserve.amount)?,
+                    ))
+                })
+                .collect::<Result<_>>()?;
+
+            let min_ratio =
+                ratio.values().min().ok_or(AmmError::InvariantViolation)?;
+
+            Ok((*min_ratio, is_inverted))
+        } else {
+            let invert_ratio: BTreeMap<Pubkey, Decimal> = max_deposits
+                .iter()
+                .map(|(mint, max_token)| {
+                    let token_reserve = *reserves
+                        .get(mint)
+                        .ok_or(AmmError::InvariantViolation)?;
+
+                    Ok((
+                        *mint,
+                        Decimal::from(token_reserve.amount)
+                            .try_div(max_token.amount)?,
+                    ))
+                })
+                .collect::<Result<_>>()?;
+
+            let max_ratio = invert_ratio
+                .values()
+                .max()
+                .ok_or(AmmError::InvariantViolation)?;
+
+            Ok((*max_ratio, is_inverted))
+        }
     }
 
     /// Any given token in the pool can be used to compute the amount
@@ -752,6 +695,48 @@ impl Pool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::*;
+
+    /// This method will return a [`BTreeMap`] with all the reserve token prices
+    /// measured in parity (all with the same denominator/quote). We chose the
+    /// token in the pool that has the lowest price to be the quote price for
+    /// all the tokens. As an example, if we have x1, x2, x3 and x3 is
+    /// the token with the biggest reserve, then this means x3 is the cheapest
+    /// token from the perspective of the pool prices. Therefore we calculate
+    /// x1 and x2 prices based on x3 as quote.
+    ///
+    /// # Important
+    /// This function mustn't be called when any reserve's balance is 0.
+    fn get_reserve_parity_prices(
+        pool: &Pool,
+    ) -> Result<BTreeMap<Pubkey, Decimal>> {
+        debug_assert!(pool.dimension >= 2);
+        let lowest_priced_token: Decimal = pool
+            .reserves()
+            .iter()
+            .map(|r| r.tokens.amount)
+            .max()
+            // there always have to be at least two reserves in the pool
+            .ok_or(AmmError::InvariantViolation)?
+            .into();
+
+        // pick the token with the lowest pool price and
+        // price all other tokens with that denominator
+        pool.reserves()
+            .iter()
+            .map(|reserve| {
+                Ok((
+                    reserve.mint,
+                    lowest_priced_token
+                        .try_div(Decimal::from(reserve.tokens))
+                        .map_err(|_| {
+                            msg!("No reserve can have a zero balance");
+                            AmmError::InvariantViolation
+                        })?,
+                ))
+            })
+            .collect()
+    }
 
     #[test]
     fn works_with_two_deposits_with_different_ratios() {
@@ -1531,16 +1516,16 @@ mod tests {
         assert_eq!(pool.reserves[0].tokens.amount, 20_009_100_000 + 100_000);
 
         assert_eq!(pool.reserves[1].mint, mint2);
-        assert_eq!(pool.reserves[1].tokens.amount, 19_979_900_010 + 99_854);
+        assert_eq!(pool.reserves[1].tokens.amount, 19_979_900_010 + 99_855);
 
         assert_eq!(pool.reserves[2].mint, mint3);
-        assert_eq!(pool.reserves[2].tokens.amount, 20_002_000_000 + 99_964);
+        assert_eq!(pool.reserves[2].tokens.amount, 20_002_000_000 + 99_965);
 
         // check that calculated tokens to deposit is correct
         let tokens_to_deposit = &deposit_result.tokens_to_deposit;
         assert_eq!(tokens_to_deposit.get(&mint1).unwrap().amount, 100_000);
-        assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 99_854);
-        assert_eq!(tokens_to_deposit.get(&mint3).unwrap().amount, 99_964);
+        assert_eq!(tokens_to_deposit.get(&mint2).unwrap().amount, 99_855);
+        assert_eq!(tokens_to_deposit.get(&mint3).unwrap().amount, 99_965);
 
         // check that calculated lp tokens to disburse is correct
         assert_eq!(
@@ -2336,5 +2321,348 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    macro_rules! assert_delta {
+        ($x:expr, $y:expr, $d:expr) => {
+            if !($x - $y < $d || $y - $x < $d) {
+                panic!();
+            }
+        };
+    }
+
+    proptest! {
+        #[test]
+        fn deposits_tokens_using_deposit_ratio_stress_token_reserves(
+            x1 in 10..18_446_744_073_709_500_000_u64,
+            x2 in 10..18_446_744_073_709_500_000_u64,
+            x3 in 10..18_446_744_073_709_500_000_u64,
+            x4 in 10..18_446_744_073_709_500_000_u64,
+        ) {
+            let mint1 = Pubkey::new_unique();
+            let mint2 = Pubkey::new_unique();
+            let mint3 = Pubkey::new_unique();
+            let mint4 = Pubkey::new_unique();
+            let mut pool = Pool {
+                mint: Pubkey::new_unique(),
+                dimension: 4,
+                reserves: [
+                    Reserve {
+                        tokens: TokenAmount::new(x1),
+                        mint: mint1,
+                        vault: Pubkey::default(),
+                    },
+                    Reserve {
+                        tokens: TokenAmount::new(x2),
+                        mint: mint2,
+                        vault: Pubkey::default(),
+                    },
+                    Reserve {
+                        tokens: TokenAmount::new(x3),
+                        mint: mint3,
+                        vault: Pubkey::default(),
+                    },
+                    Reserve {
+                        tokens: TokenAmount::new(x4),
+                        mint: mint4,
+                        vault: Pubkey::default(),
+                    },
+                ],
+                ..Default::default()
+            };
+            let pool2 = pool.clone();
+
+            let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+            max_tokens.insert(mint1, TokenAmount::new(10_000));
+            max_tokens.insert(mint2, TokenAmount::new(20_000));
+            max_tokens.insert(mint3, TokenAmount::new(15_000));
+            max_tokens.insert(mint4, TokenAmount::new(25_000));
+
+            let deposit_result = pool.deposit_tokens(
+                max_tokens.clone(), TokenAmount::new(1)
+            ).unwrap();
+
+            // Compute via alternative method
+
+            // pick the token with the lowest pool price and
+            // price all other tokens with that denominator
+            let reserve_prices: BTreeMap<Pubkey, Decimal> =
+                get_reserve_parity_prices(&pool2)?;
+
+            // Convert max_tokens amounts to denominate in lowest denominated
+            // token. Those values will be all comparable
+            struct DenominatedToken {
+                max_tokens_to_deposit: Decimal,
+                total_parity_price: Decimal,
+            }
+            // Example:
+            // {
+            //     "mintA" : {
+            //         "max_tokens_to_deposit": "10",
+            //         "parity_price_per_token": "2",
+            //         "total_parity_price": "20",
+            //     },
+            //     "mintB" : {  // this is the quote token
+            //         "max_tokens_to_deposit": "10",
+            //         "parity_price_per_token": "1",
+            //         "total_parity_price": "10",
+            //     },
+            //     "mintC" : { // this is the token to deposit of the least
+            //         "max_tokens_to_deposit": "5",
+            //         "parity_price_per_token": "0.5",
+            //         "total_parity_price": "2.5",
+            //     },
+            // }
+            let denominated_tokens: BTreeMap<Pubkey, DenominatedToken> =
+                max_tokens
+                    .iter()
+                    .map(|(mint, tokens)| {
+                        let parity_price_per_token = *reserve_prices
+                            .get(mint)
+                            .ok_or(AmmError::InvariantViolation)?;
+
+                        Ok((
+                            *mint,
+                            DenominatedToken {
+                                max_tokens_to_deposit: (*tokens).into(),
+                                total_parity_price: Decimal::from(*tokens)
+                                    .try_mul(parity_price_per_token)?,
+                            },
+                        ))
+                    })
+                    .collect::<Result<_>>()?;
+
+            // Get the the max_token that has the lowest deposit amount
+            //
+            // In the example above, this would be mintC
+            //
+            // This is the limiting factor on the amount of tokens to deposit
+            // across all reserves.
+            let lowest_token_deposit_total_parity_price = denominated_tokens
+                .iter()
+                .map(|(_, d)| d.total_parity_price)
+                .min()
+                .unwrap();
+
+            let tokens_to_deposit = denominated_tokens
+                .into_iter()
+                .map(|(mint, denominated_token)| {
+                    // Consider the example above:
+                    // * mintC is the limiting factor in the deposit, ie. we can
+                    //   deposit least of mintC in terms of the common price.
+                    //   Therefore the amount we deposit is equal to the
+                    //   requested max amount by the user.
+                    // * mintB is the quote token, ie. the prices of other mints
+                    //   are given in mintB. Therefore, the amount to deposit is
+                    //   equal to the lowest parity price.
+                    // * mintA is neither the limiting factor nor the quote, so
+                    //   follow the formula
+
+                    // To keep the same ratios after deposit as there were
+                    // before the deposit, we don't take all tokens that user
+                    // provided in the "max_tokens" arguments. We found the
+                    // limiting factor. Now we need to scale the max amount of
+                    // tokens to deposit by the ratio of the total parity price
+                    // to the limiting factor.
+                    //
+                    // For example:
+                    // Limiting factor is $5, the total parity price is $10 and
+                    // the amount of tokens that hose $10 represent is 100.
+                    // We can only deposit $5 worth of those tokens.
+                    // $5/$10 * 100 = 50 tokens.
+                    Ok((
+                        mint,
+                        TokenAmount {
+                            amount: try_mul_div(
+                                denominated_token.max_tokens_to_deposit,
+                                lowest_token_deposit_total_parity_price,
+                                denominated_token.total_parity_price,
+                            )?
+                            // we ceil to prevent deposit of 0 tokens
+                            .try_ceil()?,
+                        },
+                    ))
+                })
+                .collect::<Result<BTreeMap<Pubkey, TokenAmount>>>()?;
+
+            assert_eq!(deposit_result.tokens_to_deposit, tokens_to_deposit);
+        }
+
+        #[test]
+        fn deposits_tokens_using_deposit_ratio_stress_max_tokens(
+            t1 in 10..18_446_744_073_709_500_000_u64,
+            t2 in 10..18_446_744_073_709_500_000_u64,
+            t3 in 10..18_446_744_073_709_500_000_u64,
+            t4 in 10..18_446_744_073_709_500_000_u64,
+        ) {
+            let mint1 = Pubkey::new_unique();
+            let mint2 = Pubkey::new_unique();
+            let mint3 = Pubkey::new_unique();
+            let mint4 = Pubkey::new_unique();
+
+            let mut pool = Pool {
+                mint: Pubkey::new_unique(),
+                dimension: 4,
+                reserves: [
+                    Reserve {
+                        tokens: TokenAmount::new(10_000),
+                        mint: mint1,
+                        vault: Pubkey::default(),
+                    },
+                    Reserve {
+                        tokens: TokenAmount::new(20_000),
+                        mint: mint2,
+                        vault: Pubkey::default(),
+                    },
+                    Reserve {
+                        tokens: TokenAmount::new(15_000),
+                        mint: mint3,
+                        vault: Pubkey::default(),
+                    },
+                    Reserve {
+                        tokens: TokenAmount::new(25_000),
+                        mint: mint4,
+                        vault: Pubkey::default(),
+                    },
+                ],
+                ..Default::default()
+            };
+            let pool2 = pool.clone();
+
+            let mut max_tokens: BTreeMap<Pubkey, TokenAmount> = BTreeMap::new();
+            max_tokens.insert(mint1, TokenAmount::new(t1));
+            max_tokens.insert(mint2, TokenAmount::new(t2));
+            max_tokens.insert(mint3, TokenAmount::new(t3));
+            max_tokens.insert(mint4, TokenAmount::new(t4));
+
+            let deposit_result = pool.deposit_tokens(
+                max_tokens.clone(), TokenAmount::new(1)
+            ).unwrap();
+
+            // Compute via alternative method
+
+            // pick the token with the lowest pool price and
+            // price all other tokens with that denominator
+            let reserve_prices: BTreeMap<Pubkey, Decimal> =
+                get_reserve_parity_prices(&pool2)?;
+
+            // Convert max_tokens amounts to denominate in lowest denominated
+            // token. Those values will be all comparable
+            struct DenominatedToken {
+                max_tokens_to_deposit: Decimal,
+                total_parity_price: Decimal,
+            }
+            // Example:
+            // {
+            //     "mintA" : {
+            //         "max_tokens_to_deposit": "10",
+            //         "parity_price_per_token": "2",
+            //         "total_parity_price": "20",
+            //     },
+            //     "mintB" : {  // this is the quote token
+            //         "max_tokens_to_deposit": "10",
+            //         "parity_price_per_token": "1",
+            //         "total_parity_price": "10",
+            //     },
+            //     "mintC" : { // this is the token to deposit of the least
+            //         "max_tokens_to_deposit": "5",
+            //         "parity_price_per_token": "0.5",
+            //         "total_parity_price": "2.5",
+            //     },
+            // }
+            let denominated_tokens: BTreeMap<Pubkey, DenominatedToken> =
+                max_tokens
+                    .iter()
+                    .map(|(mint, tokens)| {
+                        let parity_price_per_token = *reserve_prices
+                            .get(mint)
+                            .ok_or(AmmError::InvariantViolation)?;
+
+                        Ok((
+                            *mint,
+                            DenominatedToken {
+                                max_tokens_to_deposit: (*tokens).into(),
+                                total_parity_price: Decimal::from(*tokens)
+                                    .try_mul(parity_price_per_token)?,
+                            },
+                        ))
+                    })
+                    .collect::<Result<_>>()?;
+
+            // Get the the max_token that has the lowest deposit amount
+            //
+            // In the example above, this would be mintC
+            //
+            // This is the limiting factor on the amount of tokens to deposit
+            // across all reserves.
+            let lowest_token_deposit_total_parity_price = denominated_tokens
+                .iter()
+                .map(|(_, d)| d.total_parity_price)
+                .min()
+                .unwrap();
+
+            let tokens_to_deposit = denominated_tokens
+                .into_iter()
+                .map(|(mint, denominated_token)| {
+                    // Consider the example above:
+                    // * mintC is the limiting factor in the deposit, ie. we can
+                    //   deposit least of mintC in terms of the common price.
+                    //   Therefore the amount we deposit is equal to the
+                    //   requested max amount by the user.
+                    // * mintB is the quote token, ie. the prices of other mints
+                    //   are given in mintB. Therefore, the amount to deposit is
+                    //   equal to the lowest parity price.
+                    // * mintA is neither the limiting factor nor the quote, so
+                    //   follow the formula
+
+                    // To keep the same ratios after deposit as there were
+                    // before the deposit, we don't take all tokens that user
+                    // provided in the "max_tokens" arguments. We found the
+                    // limiting factor. Now we need to scale the max amount of
+                    // tokens to deposit by the ratio of the total parity price
+                    // to the limiting factor.
+                    //
+                    // For example:
+                    // Limiting factor is $5, the total parity price is $10 and
+                    // the amount of tokens that hose $10 represent is 100.
+                    // We can only deposit $5 worth of those tokens.
+                    // $5/$10 * 100 = 50 tokens.
+
+                    Ok((
+                        mint,
+                        TokenAmount {
+                            amount: try_mul_div(
+                                denominated_token.max_tokens_to_deposit,
+                                lowest_token_deposit_total_parity_price,
+                                denominated_token.total_parity_price,
+                            )?
+                            // we ceil to prevent deposit of 0 tokens
+                            .try_ceil()?,
+                        },
+                    ))
+                })
+                .collect::<Result<BTreeMap<Pubkey, TokenAmount>>>()?;
+
+            assert_delta!(
+                deposit_result.tokens_to_deposit.get(&mint1).unwrap().amount as i64,
+                tokens_to_deposit.get(&mint1).unwrap().amount as i64,
+                1
+            );
+            assert_delta!(
+                deposit_result.tokens_to_deposit.get(&mint2).unwrap().amount as i64,
+                tokens_to_deposit.get(&mint2).unwrap().amount as i64,
+                1
+            );
+            assert_delta!(
+                deposit_result.tokens_to_deposit.get(&mint3).unwrap().amount as i64,
+                tokens_to_deposit.get(&mint3).unwrap().amount as i64,
+                1
+            );
+            assert_delta!(
+                deposit_result.tokens_to_deposit.get(&mint4).unwrap().amount as i64,
+                tokens_to_deposit.get(&mint4).unwrap().amount as i64,
+                1
+            );
+        }
     }
 }
