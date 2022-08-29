@@ -58,7 +58,7 @@ pub struct RedeemLiquidity<'info> {
 pub fn handle<'info>(
     ctx: Context<'_, '_, '_, 'info, RedeemLiquidity<'info>>,
     lp_tokens_to_burn: TokenAmount,
-    min_amount_tokens: Vec<RedeemMintTokens>,
+    min_amount_tokens: Vec<TokenLimit>,
 ) -> Result<()> {
     let accs = ctx.accounts;
 
