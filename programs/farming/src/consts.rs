@@ -23,6 +23,9 @@ pub const HARVEST_PERIODS_LEN: usize = 10;
 /// kept.
 pub const SNAPSHOTS_LEN: usize = 1000;
 
+/// Automation must wait at least this many slots before it can take a new
+/// snapshot.
+///
 /// There are ~2 slots per second. The
 /// [`crate::endpoints::take_snapshot`] endpoint is available for a
 /// single [`crate::models::Farm`] at most this often.

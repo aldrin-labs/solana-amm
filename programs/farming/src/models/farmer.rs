@@ -208,7 +208,7 @@ impl Farmer {
         farm: &Farm,
         current_slot: Slot,
     ) -> Result<()> {
-        // there is no eligible harvest avaialble if the last calculation
+        // there is no eligible harvest available if the last calculation
         // has happened on the current slot or after, therefore we skip
         if self.calculate_next_harvest_from >= current_slot {
             return Ok(());
@@ -336,6 +336,13 @@ fn eligible_harvest_until<'a>(
     period: (Slot, Slot),
     farmer_staked: TokenAmount,
 ) -> Result<()> {
+    if farmer_staked.amount == 0 {
+        // This method updates farmer's harvest tokens. If the farmer has no
+        // staked tokens, there won't be any update as their share is always
+        // zero. Therefore, we can return early.
+        return Ok(());
+    }
+
     let (since, until) = period;
 
     // we iterate over the snapshots in DESC order
@@ -381,6 +388,7 @@ fn eligible_harvest_until<'a>(
         // sum over all farmers' share is 1
         let farmer_share = Decimal::from(farmer_staked.amount)
             .try_div(Decimal::from(snapshot.staked.amount))?;
+        debug_assert_ne!(farmer_share, Decimal::zero());
 
         for farm_harvest in farm_harvests
             .values()
