@@ -742,8 +742,8 @@ dependencies = [
 
 [[package]]
 name = "decimal"
-version = "0.4.0"
-source = "git+https://github.com/aldrin-exchange/solana-decimal?tag=0.4.0#5a49e0f5f6d6fbb7a43f7821444f64cf973f6956"
+version = "0.7.0"
+source = "git+https://github.com/aldrin-exchange/solana-decimal?tag=0.7.0#80998f288f1ac7d61c08ea616edc0596766fa3f7"
 dependencies = [
  "anchor-lang",
  "uint",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "farming"
-version = "5.1.0"
+version = "5.1.1"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
