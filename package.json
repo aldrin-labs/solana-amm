@@ -8,7 +8,9 @@
         "lint": "tslint -c tslint.json 'tests/**/*.ts'",
         "test": "anchor test",
         "ts-check": "tsc --noEmit",
-        "ts-node": "ts-node"
+        "ts-node": "ts-node",
+        "show-farmer": "ts-node bin/farming/showFarmer.ts",
+        "show-farm": "ts-node bin/farming/showFarm.ts"
     },
     "dependencies": {
         "@project-serum/anchor": "^0.24.2",
