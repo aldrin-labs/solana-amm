@@ -43,6 +43,8 @@ pub fn get_buy_reserve_balance_after_swap(
 
     let product = product
         .try_div(Decimal::from(1000u64.pow(exp)).try_pow(num_reserves - 1)?)?;
+
+    println!("Product {}", product);
     let sum = sum.try_div(Decimal::from(1000u64.pow(exp)))?;
 
     let n_pow_n = Decimal::from(num_reserves).try_pow(num_reserves)?;
@@ -70,7 +72,7 @@ pub fn get_buy_reserve_balance_after_swap(
     // get the value of constant term = D^(n+1) / n^n prod_{i != k} x_i
     let constant_term = d
         .try_pow(num_reserves + 1)?
-        .try_div(n_pow_n.try_mul(product)?)?; //todo: should be sum
+        .try_div(n_pow_n.try_mul(product)?)?;
 
     let quadratic_term = amp.try_mul(n_pow_n)?;
 
@@ -131,6 +133,32 @@ pub fn compute_delta_withdraw_token_amount(
 mod tests {
     use super::*;
     use proptest::*;
+
+    #[test]
+    fn test_product_0() -> Result<()> {
+        let x1 = 1u64;
+        let x2 = 100000000u64;
+        let x3 = 1u64;
+        let x2_3 = Decimal::from(x2).try_mul(Decimal::from(x3))?;
+        let x2_add_3 = Decimal::from(x2).try_add(Decimal::from(x3))?;
+        let num_reserves = 4u64;
+        let amp = Decimal::from(2u64);
+        let sum = Decimal::from(x1).try_add(Decimal::from(x2_add_3))?;
+        let d = sum.try_mul(78)?;
+        let product = Decimal::from(x1).try_mul(Decimal::from(x2_3))?;
+
+        let root = get_buy_reserve_balance_after_swap(
+            num_reserves,
+            &amp,
+            &d,
+            sum,
+            product,
+        )?;
+
+        //assert_ne!(root, Decimal::zero());
+        println!("root {}", root);
+        Ok(())
+    }
 
     #[test]
     fn it_computes_delta_quote_token_amount() {
