@@ -41,28 +41,36 @@ async function main() {
     ({ mint }) => !PublicKey.default.equals(mint)
   );
 
-  console.log(
-    `
-    Farm ${farmPubkey} with admin ${admin} stakes mint ${stakeMint} into vault
-    ${stakeVault}.
-    Minimum snapshot window is ${minSnapshotWindowSlots} slots and current tip
-    is on ${snapshots.ringBufferTip}. The length of the history is
-    ${ringBuffer.length} and the latest snapshot started at slot
-    ${latestSnapshot.startedAt.slot} with ${latestSnapshot.staked.amount} tokens
-    staked.`
-  );
+  console.log(`
+    Farm ${farmPubkey} with admin ${admin} stakes mint ${stakeMint} into vault ${stakeVault}.`);
+  console.log(`\
+    Minimum snapshot window is ${minSnapshotWindowSlots} slots and current tip is on ${snapshots.ringBufferTip}.`);
+  console.log(`\
+    The length of the history is ${ringBuffer.length} and the latest snapshot started at slot ${latestSnapshot.startedAt.slot} with ${latestSnapshot.staked.amount} tokens staked.`);
 
   if (initialisedHarvests.length > 0) {
     console.log(`
     Harvest for mint`);
 
-    initialisedHarvests.forEach(({ mint, vault }) => {
+    initialisedHarvests.forEach(({ mint, vault, periods }) => {
       if (PublicKey.default.equals(mint)) {
         return;
       }
 
       console.log(`
       *  ${mint} is stored in vault ${vault}`);
+
+      periods
+        .filter(({ tps }) => tps.amount.toNumber())
+        .forEach(({ tps, startsAt, endsAt }) => {
+          const s = startsAt.slot.toNumber();
+          const e = endsAt.slot.toNumber();
+          const t = tps.amount.toNumber();
+          console.log(
+            `\
+            has a period from slot ${s} to slot ${e} with tokens per slot ${t};`
+          );
+        });
     });
   } else {
     console.log("There are no harvests setup yet!");
