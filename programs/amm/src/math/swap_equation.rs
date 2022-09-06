@@ -32,7 +32,7 @@ pub fn get_buy_reserve_balance_after_swap(
     // A n^n sum_{i != k} x_i - D(n^n A - 1)
 
     // since we are dealing with Decimal types,
-    // which rely on U320, we split the computation
+    // which rely on U192, we split the computation
     // of the linear term as a first term
     // A n^n sum_{i != k} x_i
     // and a second term
@@ -43,6 +43,17 @@ pub fn get_buy_reserve_balance_after_swap(
 
     let product = product
         .try_div(Decimal::from(1000u64.pow(exp)).try_pow(num_reserves - 1)?)?;
+
+    // we don't allow trades in which the product is infinitesimally close
+    // to zero, as this means extreme imbalance on a stable swap pool
+    if product < Decimal::from_scaled_val(1_000_000) {
+        msg!(
+            "invalid trade, it creates extreme imbalance \
+            on current stable pool"
+        );
+        return Err(error!(AmmError::MathOverflow));
+    }
+
     let sum = sum.try_div(Decimal::from(1000u64.pow(exp)))?;
 
     let n_pow_n = Decimal::from(num_reserves).try_pow(num_reserves)?;
@@ -213,6 +224,34 @@ mod tests {
         )?;
 
         assert_ne!(root, Decimal::zero());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fyeo_aldrin_01() -> Result<()> {
+        // Test written by auditors to demonstrate a possibility of scaling down
+        // the discriminant to zero.
+
+        let x1 = 1u64;
+        let x2 = 100000000u64;
+        let x3 = 1u64;
+        let x2_3 = Decimal::from(x2).try_mul(Decimal::from(x3))?;
+        let x2_add_3 = Decimal::from(x2).try_add(Decimal::from(x3))?;
+        let num_reserves = 4u64;
+        let amp = Decimal::from(2u64);
+        let sum = Decimal::from(x1).try_add(Decimal::from(x2_add_3))?;
+        let d = sum.try_mul(78)?;
+        let product = Decimal::from(x1).try_mul(Decimal::from(x2_3))?;
+
+        get_buy_reserve_balance_after_swap(
+            num_reserves,
+            &amp,
+            &d,
+            sum,
+            product,
+        )
+        .unwrap_err();
 
         Ok(())
     }
