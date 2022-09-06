@@ -81,7 +81,7 @@ pub fn get_buy_reserve_balance_after_swap(
     // get the value of constant term = D^(n+1) / n^n prod_{i != k} x_i
     let constant_term = d
         .try_pow(num_reserves + 1)?
-        .try_div(n_pow_n.try_mul(product)?)?; //todo: should be sum
+        .try_div(n_pow_n.try_mul(product)?)?;
 
     let quadratic_term = amp.try_mul(n_pow_n)?;
 

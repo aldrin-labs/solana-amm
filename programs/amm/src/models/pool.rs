@@ -67,22 +67,7 @@ pub struct Reserve {
     Eq,
     PartialEq,
 )]
-pub struct DepositMintTokens {
-    pub mint: Pubkey,
-    pub tokens: TokenAmount,
-}
-
-#[derive(
-    AnchorDeserialize,
-    AnchorSerialize,
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-)]
-pub struct RedeemMintTokens {
+pub struct TokenLimit {
     pub mint: Pubkey,
     pub tokens: TokenAmount,
 }
