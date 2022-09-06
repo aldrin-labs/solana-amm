@@ -61,7 +61,7 @@ pub struct DepositLiquidity<'info> {
 /// (only in the case the curve is stable)
 pub fn handle<'info>(
     ctx: Context<'_, '_, '_, 'info, DepositLiquidity<'info>>,
-    max_amount_tokens: Vec<DepositMintTokens>,
+    max_amount_tokens: Vec<TokenLimit>,
 ) -> Result<()> {
     let accs = ctx.accounts;
 

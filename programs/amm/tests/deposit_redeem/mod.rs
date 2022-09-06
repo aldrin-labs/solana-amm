@@ -173,7 +173,7 @@ impl Tester {
 
         let max_amount_tokens: Vec<_> = max_amount_tokens
             .into_iter()
-            .map(|(mint, tokens)| DepositMintTokens { mint, tokens })
+            .map(|(mint, tokens)| TokenLimit { mint, tokens })
             .collect();
 
         deposit_liquidity(ctx.build(&mut accounts), max_amount_tokens)?;
@@ -251,7 +251,7 @@ impl Tester {
 
         let min_amount_tokens: Vec<_> = min_amount_tokens
             .into_iter()
-            .map(|(mint, tokens)| RedeemMintTokens { mint, tokens })
+            .map(|(mint, tokens)| TokenLimit { mint, tokens })
             .collect();
 
         redeem_liquidity(
