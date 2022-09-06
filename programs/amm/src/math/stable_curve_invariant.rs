@@ -67,6 +67,16 @@ impl StableCurveInvariant {
             },
         )?;
 
+        // we don't allow trades in which the product is infinitesimally close
+        // to zero, as this means extreme imbalance on a stable swap pool
+        if product < Decimal::from_scaled_val(1_000_000) {
+            msg!(
+                "invalid trade, it creates extreme imbalance \
+                on current stable pool"
+            );
+            return Err(error!(AmmError::MathOverflow));
+        }
+
         let exponent = token_reserves_amount.len() as u64;
         let base: Decimal = exponent.into();
         let n: Decimal = base.try_pow(exponent)?;

@@ -6,6 +6,14 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 20022-09-04
+
+### Fixed
+
+- A possible issue where the stable pool in a pathological state could scale
+  down discriminant value to zero. We fail the swap for these pathological cases
+  to prevent misuse via a flashloan attack.
+
 ## [1.0.1] - 20022-08-21
 
 ### Changed
