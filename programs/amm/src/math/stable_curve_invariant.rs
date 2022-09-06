@@ -10,6 +10,15 @@ use helpers::scale_down_value;
 // we are approximating positive root from a well positioned first
 // initial guess.
 // We use the same max that was used in the old AMM version.
+//
+// This is one of two bounding conditions for the newtons method. The other is
+// the admissible error. We're pretty much guaranteed that the admissible error
+// bounding condition is going to be the breaking point for the newton's method
+// loop. We use this constant as a sanity check. We don't lower the constant to
+// be more in line with the admissible error, because we want to have only one
+// condition to reason about. It's better to know that the method will always
+// break on surpassing the admissible error, than to reason about whether it
+// was max iterations or the error.
 const MAX_ITERATIONS: usize = 32;
 
 pub fn compute(
