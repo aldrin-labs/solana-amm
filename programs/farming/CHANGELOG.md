@@ -6,6 +6,12 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.1] - 20022-08-30
+
+### Changed
+
+- Upgraded to decimal crate `0.7.0` which contains a division fix.
+
 ## [5.1.0] - 20022-08-07
 
 ### Added
