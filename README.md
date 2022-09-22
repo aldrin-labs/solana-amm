@@ -347,6 +347,7 @@ SSP'(D) := \frac{(n + 1) D^n}{n^n \prod_i x_i} + n^n A - 1
 - [Rust docs][fp-rust-docs]
 - [Changelog][fp-changelog]
 - [`DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ` is dev program][fp-dev-solscan]
+- [`FARMmkoshPWbkqzycueFwJAUNfR2N7KXQkAChaS7RCg1` is prod program][fp-prod-solscan]
 
 ## Motivation
 
@@ -824,4 +825,5 @@ snapshot ring buffer history:
 [snapshot-open-calc]: docs/images/harvest_calc_open_snapshot.png
 [snapshot-history]: docs/images/history.png
 [fp-dev-solscan]: https://solscan.io/account/DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ
+[fp-prod-solscan]: https://solscan.io/account/FARMmkoshPWbkqzycueFwJAUNfR2N7KXQkAChaS7RCg1
 [amm-dev-solscan]: https://solscan.io/account/dAMMP3unWqb4u2La1xczx6JSAZsGByo9amHgzkVY7FG
