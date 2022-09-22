@@ -7,7 +7,10 @@ pub mod prelude;
 use crate::prelude::*;
 use endpoints::*;
 
-// TODO: conditionally compile this based on feature "prod"
+#[cfg(not(feature = "dev"))]
+declare_id!("FARMmkoshPWbkqzycueFwJAUNfR2N7KXQkAChaS7RCg1");
+
+#[cfg(feature = "dev")]
 declare_id!("DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ");
 
 #[program]

@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "farming"
-version = "5.1.1"
+version = "5.1.2"
 dependencies = [
  "anchor-lang",
  "anchor-spl",

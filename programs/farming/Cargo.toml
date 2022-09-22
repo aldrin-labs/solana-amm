@@ -1,6 +1,6 @@
 [package]
 name = "farming"
-version = "5.1.1"
+version = "5.1.2"
 description = "Stake tokens and collect harvest"
 edition = "2021"
 
