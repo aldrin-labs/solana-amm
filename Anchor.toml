@@ -1,0 +1,17 @@
+[programs.localnet]
+farming = "DFarMhaRkdYqhK5jZsexMftaJuWHrY7VzAfkXx5ZmxqZ"
+amm = "dAMMP3unWqb4u2La1xczx6JSAZsGByo9amHgzkVY7FG"
+
+[provider]
+cluster = "localnet"
+wallet = "tests/localnet-keypair.json"
+
+[scripts]
+test = "yarn run ts-mocha --bail -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[features]
+seeds = false
+skip-lint = false
+
+[registry]
+url = "https://api.apr.dev"

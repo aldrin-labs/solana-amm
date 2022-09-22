@@ -1,0 +1,26 @@
+[package]
+name = "farming"
+version = "5.1.1"
+description = "Stake tokens and collect harvest"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "farming"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+dev = []
+
+[dependencies]
+anchor-lang = "0.24.2"
+anchor-spl = "0.24.2"
+decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.4.0" }
+
+[dev-dependencies]
+solana-sdk = "*" # whatever anchor uses
+serial_test = "0.6"

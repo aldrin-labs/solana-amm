@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8222be3b33befc5b4f21471a486e5df2f9c8861dc890e33efb0ec65a8ff09d78 # shrinks to amp = 2, first_reserve_amount = 7589078552, second_reserve_amount = 6479772798, third_reserve_amount = 4864643752
+cc aeda1ea3b99b3b08e3f7843e536049a6bc593ba32c1b8538d8363678222fd7c3 # shrinks to amp = 51, first_reserve_amount = 2204011795, second_reserve_amount = 3512106714, third_reserve_amount = 4759046611
+cc 998bcea169199ca71edd486e64df60e9e2d897029a1083f76b77c97dc58a4735 # shrinks to amp = 129, first_reserve_amount = 968044718, second_reserve_amount = 8782049842, third_reserve_amount = 5837406765
+cc c9944b57f90de5faf4c27a1499893e4c8a7e2f9c57c761482e1c5c578baf0e05 # shrinks to amp = 36, first_reserve_amount = 3239369809766352, second_reserve_amount = 3059233022495859, third_reserve_amount = 1746863464928211
+cc 609cbb8b19aa13180edf31b498a053bb28f06aaf3ac6004ab2cf09e160971c34 # shrinks to amp = 62, first_reserve_amount = 5895230911861919, second_reserve_amount = 8174619123896919

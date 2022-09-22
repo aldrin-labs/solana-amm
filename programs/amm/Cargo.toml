@@ -1,0 +1,35 @@
+[package]
+name = "amm"
+version = "2.0.0"
+description = "Deposit liquidity to earn fees and swap between mints"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "amm"
+
+[features]
+cpi = ["no-entrypoint"]
+default = []
+dev = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+
+[dependencies]
+anchor-lang = "0.24.2"
+anchor-spl = "0.24.2"
+decimal = { git = "https://github.com/aldrin-exchange/solana-decimal", tag = "0.4.0" }
+
+[dev-dependencies]
+anchortest = { git = "https://github.com/aldrin-exchange/solana-anchortest", tag = "0.4.0" }
+criterion = "0.3"
+pretty_assertions = "1.2"
+proptest = "1.0"
+rand = "0.8"
+serial_test = "0.6"
+solana-sdk = "*" # whatever anchor uses
+
+[[bench]]
+name = "stable_curve_invariant"
+harness = false
