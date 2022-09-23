@@ -27,6 +27,7 @@ unit:
   script:
     - cargo fmt --check
     - cargo clippy -- -D warnings
+    # TODO: fix codecov
     # - ./bin/codecov.sh "cobertura"
 
 # builds program and idl in parallel with other build stage jobs
@@ -76,9 +77,10 @@ program:
     - cp -r target/doc public
     - cp -r docs public/docs
 
+    # TODO: fix codecov
     # generate code coverage report
-    - ./bin/codecov.sh
-    - cp -r target/release/coverage public
+    # - ./bin/codecov.sh
+    # - cp -r target/release/coverage public
 
     # generates public index html file from README
     - node /scripts/prepareReadme.js |
