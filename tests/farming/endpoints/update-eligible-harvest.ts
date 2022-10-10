@@ -130,5 +130,30 @@ export function test() {
         })
       );
     });
+
+    it("updates harvest until given slot", async () => {
+      const tps = 10;
+      await farm.newHarvestPeriod(harvestMint, 0, 100, tps);
+
+      await farm.takeSnapshot();
+
+      await farmer.updateEligibleHarvestUntil(3);
+      const farmerInfo1 = await farmer.fetch();
+      expect(farmerInfo1.calculateNextHarvestFrom.slot.toNumber()).to.eq(4);
+
+      await farmer.updateEligibleHarvestUntil(2);
+      const farmerInfo2 = await farmer.fetch();
+      expect(farmerInfo2.calculateNextHarvestFrom.slot.toNumber()).to.eq(4);
+
+      await farmer.updateEligibleHarvestUntil(7);
+      const farmerInfo3 = await farmer.fetch();
+      expect(farmerInfo3.calculateNextHarvestFrom.slot.toNumber()).to.eq(8);
+
+      await farmer.updateEligibleHarvestUntil(10000000);
+      const farmerInfo4 = await farmer.fetch();
+      expect(
+        farmerInfo4.calculateNextHarvestFrom.slot.toNumber()
+      ).to.be.approximately(await getCurrentSlot(), 2);
+    });
   });
 }

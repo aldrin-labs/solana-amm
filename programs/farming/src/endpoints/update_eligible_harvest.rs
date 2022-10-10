@@ -21,14 +21,14 @@ pub struct UpdateEligibleHarvest<'info> {
     pub farmer: Account<'info, Farmer>,
 }
 
-pub fn handle(ctx: Context<UpdateEligibleHarvest>) -> Result<()> {
+pub fn handle(ctx: Context<UpdateEligibleHarvest>, until: Slot) -> Result<()> {
     let accounts = ctx.accounts;
 
     let farm = accounts.farm.load()?;
 
     accounts
         .farmer
-        .check_vested_period_and_update_harvest(&farm, Slot::current()?)?;
+        .check_vested_period_and_update_harvest(&farm, until)?;
 
     Ok(())
 }
