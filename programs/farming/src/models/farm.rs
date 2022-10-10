@@ -84,6 +84,10 @@ pub struct Harvest {
     /// 3. Gaps between periods are allowed and they should be interpreted as
     /// having `ρ = 0`.
     ///
+    /// Changes to `ρ` must be kept until no snapshots refer that much back in
+    /// time. This limits the update frequency. For `dev` feature, this
+    /// limitation is removed.
+    ///
     /// # Note
     /// This len must match [`consts::HARVEST_PERIODS_LEN`].
     pub periods: [HarvestPeriod; 10],
@@ -268,10 +272,16 @@ impl Farm {
         // already initialized as a fixed number length array of default
         // elements so unwrap `.last()` is safe
         let oldest_period = harvest.periods.last().unwrap();
-        // if the oldest period is within the current snapshot history,
-        // we are unable to update its value, the admin already passed the
-        // allowed max number of possible configuration updates
-        let is_oldest_period_initialized = oldest_period.ends_at.slot != 0;
+        let is_oldest_period_initialized = if cfg!(any(feature = "prod", test))
+        {
+            // if the oldest period is within the current snapshot history,
+            // we are unable to update its value, the admin already passed the
+            // allowed max number of possible configuration updates
+            oldest_period.ends_at.slot != 0
+        } else {
+            // always enable updates in dev
+            false
+        };
         if is_oldest_period_initialized
             && oldest_period.ends_at.slot >= oldest_snapshot.started_at.slot
         {
