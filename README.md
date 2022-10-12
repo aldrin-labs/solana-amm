@@ -559,7 +559,11 @@ their end. The eligible harvest in a given snapshot can be processes by the
 program even if there are multiple harvest periods within it, with distinct
 `p` values.
 
-Whenever we encouter ourselves in a harvesting period, the `p` of such period
+Changes to `ρ` must be kept until no snapshots refer that much back in time.
+This limits the update frequency.
+For `dev` feature, this limitation is removed.
+
+Whenever we encounter ourselves in a harvesting period, the `p` of such period
 cannot be altered, only the `p` of harvest periods which have not yet started.
 
 To summarize, a `Farm` account contains data about:
