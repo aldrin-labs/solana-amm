@@ -231,6 +231,21 @@ export class Farmer {
       .rpc();
   }
 
+  public async updateEligibleHarvestUntil(
+    untilSlot: number,
+    input: Partial<UpdateEligibleHarvestArgs> = {}
+  ) {
+    const farm = input.farm ?? this.farm.id;
+
+    await farming.methods
+      .updateEligibleHarvestUntil({ slot: new BN(untilSlot) })
+      .accounts({
+        farmer: await this.id(),
+        farm,
+      })
+      .rpc();
+  }
+
   public async claimEligibleHarvest(
     vaultWalletPairs: [PublicKey, PublicKey][],
     input: Partial<ClaimEligibleHarvestArgs> = {}

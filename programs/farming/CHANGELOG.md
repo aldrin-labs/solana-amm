@@ -6,6 +6,19 @@ The format is based on [Keep a
 Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.1] - 20022-10-10
+
+### Changed
+
+- In `dev` program, always enable overwriting of the oldest period.
+
+## [5.2.0] - 20022-10-10
+
+### Added
+
+- New endpoint to update eligible harvest up to a certain slot. Enables updating
+  harvest for farmers who require many CU.
+
 ## [5.1.2] - 20022-09-22
 
 ### Added

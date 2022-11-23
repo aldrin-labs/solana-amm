@@ -91,7 +91,18 @@ pub mod farming {
     pub fn update_eligible_harvest(
         ctx: Context<UpdateEligibleHarvest>,
     ) -> Result<()> {
-        endpoints::update_eligible_harvest::handle(ctx)
+        endpoints::update_eligible_harvest::handle(ctx, Slot::current()?)
+    }
+
+    /// Updates eligible harvest until given slot inclusive.
+    pub fn update_eligible_harvest_until(
+        ctx: Context<UpdateEligibleHarvest>,
+        until: Slot,
+    ) -> Result<()> {
+        endpoints::update_eligible_harvest::handle(
+            ctx,
+            Slot::current()?.min(until),
+        )
     }
 
     pub fn claim_eligible_harvest<'info>(
