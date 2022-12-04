@@ -94,6 +94,7 @@ pub fn handle(
     min_buy: TokenAmount,
 ) -> Result<()> {
     let accs = ctx.accounts;
+    let sell_mint = accs.sell_vault.mint;
 
     if sell.amount == 0 {
         return Err(error!(err::arg("Sell amount mustn't be zero")));
@@ -109,11 +110,16 @@ pub fn handle(
     // swap fee is a fraction of the sell amount
     let tokens_to_swap = TokenAmount::new(sell.amount - swap_fee.amount);
     // this also updates the reserves' balances
-    let bought = accs.pool.swap(
-        accs.sell_vault.mint,
-        tokens_to_swap,
-        accs.buy_vault.mint,
-    )?;
+    let bought =
+        accs.pool
+            .swap(sell_mint, tokens_to_swap, accs.buy_vault.mint)?;
+    // We must explicitly update the pool's state as swap fee was subtracted
+    // from the sell amount. However, the swap fee should still be considered
+    // when depositing or withdrawing.
+    accs.pool
+        .reserve_mut(sell_mint)
+        .unwrap() // the mint is part of the pool as per constraints and swap fn
+        .add_tokens(swap_fee)?;
 
     if min_buy > bought {
         msg!(
@@ -151,7 +157,7 @@ pub fn handle(
     let toll_in_lp_tokens = calculate_toll_in_lp_tokens(
         &accs.pool,
         swap_fee,
-        accs.sell_vault.mint,
+        sell_mint,
         accs.lp_mint.supply.into(),
     )?;
     if let Some(toll_in_lp_tokens) = toll_in_lp_tokens {
@@ -164,6 +170,13 @@ pub fn handle(
     }
 
     print_lp_supply(&mut accs.lp_mint)?;
+
+    // we need to update the invariant because fees have been taken, therefore
+    // even though the invariant applies to swaps, it is changed during each
+    // trade because of the collected fees
+    //
+    // no-op if const prod
+    accs.pool.update_curve_invariant()?;
 
     Ok(())
 }
