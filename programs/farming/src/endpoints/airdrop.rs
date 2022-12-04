@@ -47,9 +47,6 @@ pub fn handle(ctx: Context<Airdrop>, airdrop: TokenAmount) -> Result<()> {
         )));
     }
 
-    msg!("{}", accs.harvest_wallet.mint);
-    msg!("{:#?}", accs.farmer.harvests);
-
     // get the harvest mint and increase the amount of tokens the user is
     // eligible for by the same amount which will be deposited into the vault
     // in the next step
