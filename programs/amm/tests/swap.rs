@@ -41,8 +41,8 @@ fn swaps_const_prod_two_reserves_no_discount() -> Result<()> {
 
     let mut pool_after = test.pool_copy();
 
-    // 29_000 = 20_000 + 10_000 * (1 - 0.09)
-    assert_eq!(pool_after.reserves[0].tokens.amount, 29_100);
+    // 29_000 = 20_000 + 10_000
+    assert_eq!(pool_after.reserves[0].tokens.amount, 30_000);
     // 13_746 = 29_000 / K, whereas K = 20_000 * 20_000
     assert_eq!(pool_after.reserves[1].tokens.amount, 13_746);
 
@@ -54,7 +54,7 @@ fn swaps_const_prod_two_reserves_no_discount() -> Result<()> {
 
     let supply_after = test.lp_supply();
 
-    assert_eq!(supply_before + 51, supply_after);
+    assert_eq!(supply_before + 50, supply_after);
 
     Ok(())
 }
@@ -91,7 +91,7 @@ fn swaps_stable_curve_three_reserves_no_discount() -> Result<()> {
 
     let mut pool_after = test.pool_copy();
 
-    assert_eq!(pool_after.reserves[0].tokens.amount, 20_009_100_000);
+    assert_eq!(pool_after.reserves[0].tokens.amount, 20_010_000_000);
     assert_eq!(pool_after.reserves[1].tokens.amount, 19_979_900_101);
     assert_eq!(pool_after.reserves[2].tokens.amount, 20_002_000_000);
 
@@ -141,9 +141,8 @@ fn swaps_const_prod_two_reserves_discount() -> Result<()> {
 
     let pool = test.pool_copy();
 
-    // reserve x = 20_000 + 9_550, whereas the latest
-    // 9_550 = 10_000 * (1 - 9%(1 - 50%))
-    assert_eq!(pool.reserves[0].tokens.amount, 29_550);
+    // reserve x = 20_000 + 10_000
+    assert_eq!(pool.reserves[0].tokens.amount, 30_000);
     // reserve y = 20_000 - 6_463, whereas the latest
     // 6_463 = floor(y0 - (K / x1)) = floor(20_000 - (400_000_000 / 29_550))
     assert_eq!(pool.reserves[1].tokens.amount, 13_537);
@@ -189,16 +188,15 @@ fn ignores_discount_if_not_valid_anymore() -> Result<()> {
 
     let pool = test.pool_copy();
 
-    // reserve x = 20_000 + 9_100, whereas the latest
-    // 9_100 = 10_000 * (1 - 9%)
-    assert_eq!(pool.reserves[0].tokens.amount, 29_100);
+    // reserve x = 20_000 + 10_000
+    assert_eq!(pool.reserves[0].tokens.amount, 30_000);
     // reserve y = 20_000 - 6_254, whereas the latest
     // 6_254 = floor(y0 - (K / x1)) = floor(20_000 - (400_000_000 / 29_100))
     assert_eq!(pool.reserves[1].tokens.amount, 13_746);
 
     let supply_after = test.lp_supply();
 
-    assert_eq!(supply_before + 51, supply_after);
+    assert_eq!(supply_before + 50, supply_after);
 
     Ok(())
 }
@@ -294,8 +292,8 @@ fn updates_stable_curve_invariant() -> Result<()> {
 
     let pool_after = test.pool_copy();
 
-    // Assert that the pool state, specifically the invariant does not change
-    assert_eq!(pool_before.curve, pool_after.curve);
+    // invariant changes because fees are collected
+    assert_ne!(pool_before.curve, pool_after.curve);
 
     Ok(())
 }
@@ -613,7 +611,7 @@ fn prints_lp_token_supply() -> Result<()> {
 
     let mut pool_after = test.pool_copy();
 
-    assert_eq!(pool_after.reserves[0].tokens.amount, 29_100);
+    assert_eq!(pool_after.reserves[0].tokens.amount, 30_000);
     assert_eq!(pool_after.reserves[1].tokens.amount, 13_746);
 
     // only these 3 values can change
@@ -624,7 +622,7 @@ fn prints_lp_token_supply() -> Result<()> {
 
     let supply_after = test.lp_supply();
 
-    assert_eq!(supply_before + 51, supply_after);
+    assert_eq!(supply_before + 50, supply_after);
 
     let logs = syscalls.logs();
     assert!(logs
@@ -797,6 +795,7 @@ impl Tester {
                 buy_mint,
             )
             .unwrap_or_default();
+        pool.reserve_mut(sell_mint).unwrap().add_tokens(fee)?;
         let supply =
             spl::mint::from_acc_info(&self.lp_mint.to_account_info()).supply;
         let mint_toll = calculate_toll_in_lp_tokens(
